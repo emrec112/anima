@@ -1,3 +1,5 @@
+pub mod charwin;
+pub mod envlight;
 pub mod governor;
 pub mod wayland;
 pub mod pointer;

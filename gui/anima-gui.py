@@ -18,6 +18,8 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 CONFIG = Path.home() / ".config/anima/config.toml"
 DATA = Path.home() / ".local/share/anima"
 UMA = DATA / "uma"
+# 3D models (.glb), e.g. Blue Archive chibis, one folder per character
+BA = DATA / "ba"
 LOG = DATA / "animad.log"
 
 
@@ -105,7 +107,19 @@ def outfits(char_dir):
         b = a.with_name(a.name.replace("[A]", "[B]").replace("_0010.", "_0011."))
         name = re.sub(r"\s*-\s*Chibi.*$", "", a.name).replace("_", "")
         out.append((name, a, b if b.exists() else None))
+    for m in sorted(char_dir.glob("*.glb")):
+        out.append((m.stem, m, None))
     return out
+
+
+def thumb(path, size):
+    """Sprite preview, or a generic icon for 3D models."""
+    if str(path).endswith(".glb"):
+        return Gtk.Image(icon_name="applications-graphics-symbolic", pixel_size=size // 2)
+    pic = Gtk.Picture.new_for_filename(str(path))
+    pic.set_size_request(size, size)
+    pic.set_can_shrink(True)
+    return pic
 
 
 class Window(Adw.ApplicationWindow):
@@ -131,7 +145,8 @@ class Window(Adw.ApplicationWindow):
         self.chars.add_css_class("navigation-sidebar")
         self.chars.set_filter_func(self.filter_char)
         self.chars.connect("row-selected", self.on_char)
-        for d in sorted(p for p in UMA.iterdir() if p.is_dir()) if UMA.exists() else []:
+        dirs = [p for root in (UMA, BA) if root.exists() for p in root.iterdir() if p.is_dir()]
+        for d in sorted(dirs, key=lambda p: p.name.lower()):
             row = Gtk.ListBoxRow()
             row.char_dir = d
             row.set_child(Gtk.Label(label=d.name, xalign=0, margin_start=8, margin_top=6, margin_bottom=6))
@@ -214,10 +229,7 @@ class Window(Adw.ApplicationWindow):
             pics = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER)
             for p in (calm, happy):
                 if p:
-                    pic = Gtk.Picture.new_for_filename(str(p))
-                    pic.set_size_request(96, 96)
-                    pic.set_can_shrink(True)
-                    pics.append(pic)
+                    pics.append(thumb(p, 96))
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             box.append(pics)
             box.append(Gtk.Label(label=name, wrap=True, max_width_chars=18, justify=Gtk.Justification.CENTER))
@@ -294,9 +306,7 @@ class Window(Adw.ApplicationWindow):
         while (c := self.team.get_first_child()) is not None:
             self.team.remove(c)
         for i, path in enumerate(team):
-            pic = Gtk.Picture.new_for_filename(path)
-            pic.set_size_request(64, 64)
-            pic.set_can_shrink(True)
+            pic = thumb(path, 64)
             rm = Gtk.Button(icon_name="window-close-symbolic", tooltip_text="Çıkar", halign=Gtk.Align.CENTER)
             rm.add_css_class("circular")
             rm.add_css_class("flat")
