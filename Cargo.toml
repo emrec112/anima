@@ -38,6 +38,8 @@ log = "0.4"
 env_logger = "0.11"
 libc = "0.2"
 dirs = "6"
+gltf = { version = "1.4.1", default-features = false, features = ["import", "utils", "names"] }
+glam = "0.34.2"
 
 [profile.release]
 opt-level = 3

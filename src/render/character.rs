@@ -233,6 +233,8 @@ in vec2 v_uv;
 uniform sampler2D u_tex;
 // 0 = custom texture/sprite, 1 = reze, 2 = neko, 3 = cyber, 4 = spirit
 uniform int u_mode;
+// u_tex is already premultiplied (3D model render target)
+uniform int u_premul;
 uniform float u_time;
 uniform float u_opacity;
 uniform vec2 u_look;  // normalized mouse direction from character (-1..1)
@@ -808,6 +810,7 @@ void main() {
     if (u_mode == 0) {
         vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
         c = texture(u_tex, clamp(uv, 0.0, 1.0));
+        if (u_premul == 1 && c.a > 0.0) c.rgb /= c.a;
         c.a *= u_opacity;
     } else if (u_mode == 1) {
         c = render_reze(v_uv);
@@ -832,6 +835,8 @@ pub struct CharacterOverlay {
     sprite_happy: Option<glow::Texture>,
     // sprite artwork looks to the right (Uma Musume chibis do)
     faces_right: bool,
+    // rigged 3D character drawn into `sprite_tex` every frame
+    model: Option<super::model3d::Model3d>,
     // index of this character; extras are drawn after the main one
     actor: usize,
     extras: Vec<CharacterOverlay>,
@@ -1061,6 +1066,7 @@ impl CharacterOverlay {
             sprite_tex: None,
             sprite_happy: None,
             faces_right: false,
+            model: None,
             actor,
             extras: Vec::new(),
             hit_rect: [0.0; 4],
@@ -1090,6 +1096,7 @@ impl CharacterOverlay {
         self.sprite_happy = None;
         self.sprite_renderer = None;
         self.faces_right = false;
+        self.model = None;
 
         if self.actor == 0 {
             self.extras.clear();
@@ -1114,6 +1121,16 @@ impl CharacterOverlay {
         }
 
         let path = crate::util::expand_path(src, std::env::current_dir().ok().as_deref());
+        if path.is_file() && super::model3d::is_model_path(&path) {
+            // render at ~1.5x the on-screen height for smooth edges
+            let px = (540.0 * self.config.scale.clamp(0.2, 4.0)).clamp(256.0, 1024.0) as u32;
+            let model = super::model3d::Model3d::load(gl, &path, px)?;
+            self.sprite_tex = Some(model.texture());
+            // drawn turned to the right, mirrored when walking left
+            self.faces_right = true;
+            self.model = Some(model);
+            return Ok(());
+        }
         if path.is_file() {
             let ext = path
                 .extension()
@@ -1473,6 +1490,17 @@ impl CharacterOverlay {
             [0.0; 4]
         };
 
+        if let Some(model) = &mut self.model {
+            use super::model3d::Pose;
+            let pose = match self.walk.act {
+                Act::Walk | Act::Chase => Pose::Walk,
+                Act::Pat => Pose::Pat,
+                Act::Held | Act::Fall => Pose::Held,
+                Act::Idle | Act::Jump => Pose::Idle,
+            };
+            model.draw(gl, dt, pose);
+        }
+
         unsafe {
             gl.enable(glow::BLEND);
             gl.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
@@ -1584,6 +1612,9 @@ impl CharacterOverlay {
                 // pat pat: quick downward squashes, no sway
                 let p = (self.walk.timer / PAT_DUR * std::f32::consts::PI * 5.0).sin().abs();
                 (0.0, 0.0, p * 5.0)
+            } else if mode == 0 && self.model.is_some() {
+                // the rig animates itself: only lift for jumps and drags
+                (0.0, jump * self.walk.jump_amp * half_clip[1] + air, 0.0)
             } else if mode == 0 {
                 let (freq, amp) = if moving { (7.0, 0.10) } else { (3.0, 0.05) };
                 let hop = (time * freq).sin().abs();
@@ -1604,6 +1635,7 @@ impl CharacterOverlay {
             self.program
                 .set_i32(gl, "u_flip_x", i32::from(self.config.flip_x ^ (self.config.walk && self.walk.left == self.faces_right)));
             self.program.set_i32(gl, "u_mode", mode);
+            self.program.set_i32(gl, "u_premul", i32::from(self.model.is_some()));
             self.program.set_f32(gl, "u_time", time);
             self.program.set_f32(gl, "u_opacity", self.config.opacity);
             self.program

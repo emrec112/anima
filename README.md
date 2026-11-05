@@ -144,7 +144,7 @@ playlist = []               # explicit entries; empty = wallpapers_dir
 
 [character]
 enabled = true
-source = "reze"             # reze|neko|cyber|spirit or a sprite path
+source = "reze"             # reze|neko|cyber|spirit, a sprite or a .glb model path
 corner = "bottom-right"
 placement = "window-inside" # wallpaper|screen-front|window-inside|window-outside
 scale = 1.15
@@ -166,6 +166,25 @@ schemecolor = "0.22 0.68 0.98"
 ```
 
 Runtime changes via the CLI are persisted back to this file.
+
+### 3D characters
+
+`source` (and `extra`) also take a rigged glTF model (`.glb` / `.gltf`). It
+plays its idle clip when standing, a walk clip while walking, a reaction clip
+when petted and a pick-up clip while dragged (`Cafe_Idle`, `Cafe_Walk`,
+`Cafe_Reaction`, `Formation_Pickup`, else any clip named like idle / walk /
+react / pickup), turned toward the walking direction. The Blue Archive chibis
+from [lihaohong6/BlueArchiveModels](https://github.com/lihaohong6/BlueArchiveModels)
+work as-is:
+
+```sh
+name="Airi"; dir=~/.local/share/anima/ba/$name; mkdir -p "$dir"
+curl -L -o "$dir/$name.glb" \
+  "https://raw.githubusercontent.com/lihaohong6/BlueArchiveModels/main/${name// /%20}.glb"
+```
+
+then `source = "~/.local/share/anima/ba/Airi/Airi.glb"`, or pick it in
+`anima-gui`, which lists `~/.local/share/anima/ba/*/` next to the sprites.
 
 ## Wallpaper formats
 
