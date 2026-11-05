@@ -1,7 +1,7 @@
 # anima-hypr: Hyprland plugin for anima
 
 Shares workspace state with `animad` through shared memory
-(`$XDG_RUNTIME_DIR/anima-hyprland.shm`). It does two things:
+(`$XDG_RUNTIME_DIR/anima-hyprland.shm`) and keeps animad's windows out of the way:
 
 - **Publishes** each monitor's active workspace and the offset Hyprland draws
   it at. That offset is the value swipes and workspace animations move.
@@ -9,6 +9,10 @@ Shares workspace state with `animad` through shared memory
   own windows, so animad writes where each one goes and the plugin moves it
   there before every frame, without animation. It only touches windows with
   app_id `anima-character` belonging to the animad process named in a record.
+- **Lets clicks through** everywhere except on the characters. Hyprland
+  hit-tests floating windows by their box, not their input region, so before
+  each pointer move the screen-sized character windows are made unfocusable
+  unless a character is under the cursor.
 
 Without the plugin, animad falls back to an overlay that estimates swipes and
 workspace animations from Hyprland's IPC and the touchpad.

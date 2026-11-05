@@ -34,6 +34,7 @@
 #include <src/desktop/view/window/WindowBackend.hpp>
 #include <src/desktop/view/window/WindowMetadata.hpp>
 #include <src/managers/eventLoop/EventLoopManager.hpp>
+#include <src/protocols/core/Compositor.hpp>
 #include <src/state/workspace/State.hpp>
 #include <src/state/MonitorState.hpp>
 
@@ -96,6 +97,22 @@ namespace {
         return w && w->metadata().appID() == "anima-character";
     }
 
+    // Hyprland hit-tests floating windows by their box, not their input
+    // region, so a screen-sized character window would take every hover and
+    // click. Before a pointer move (or click) is handled, only character
+    // windows with a character under the cursor stay focusable.
+    void passThrough(const Vector2D& pos) {
+        for (const auto& w : Desktop::windowState()->windows()) {
+            if (!isCharacter(w) || !w->mapped())
+                continue;
+            const auto SURF   = w->resource();
+            const auto LOCAL  = pos - w->positionAnimation()->value();
+            const bool INSIDE = SURF && SURF->m_current.effectiveInputRegion().containsPoint(LOCAL);
+            if (w->m_ruleApplicator->noFocus().valueOrDefault() == INSIDE)
+                Config::Actions::setProp("no_focus", INSIDE ? "0" : "1", w);
+        }
+    }
+
     // Character windows have to take clicks (dragging, petting), but a click
     // must not leave keyboard focus on them: hand it back right away.
     void keepFocus() {
@@ -122,6 +139,7 @@ namespace {
     HANDLE              g_handle = nullptr;
     SShared*            g_shared = nullptr;
     CHyprSignalListener g_listener;
+    CHyprSignalListener g_moveListener;
 
     SMonitorRecord*     slotFor(const std::string& name) {
         SMonitorRecord* empty = nullptr;
@@ -311,7 +329,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         throw std::runtime_error("[anima-hypr] cannot create $XDG_RUNTIME_DIR/anima-hyprland.shm");
 
     // before each frame: the offset this frame is drawn with
-    g_listener = Event::bus()->m_events.render.pre.listen([](auto mon) {
+    g_moveListener = Event::bus()->m_events.input.mouse.move.listen([](const Vector2D& pos, Event::SCallbackInfo&) { passThrough(pos); });
+    g_listener     = Event::bus()->m_events.render.pre.listen([](auto mon) {
         publish(mon);
         placeWindows();
         keepFocus();
@@ -322,6 +341,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
 APICALL EXPORT void PLUGIN_EXIT() {
     g_listener.reset();
+    g_moveListener.reset();
     g_placed    = {};
     g_lastFocus = {};
     if (g_shared) {
