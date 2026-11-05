@@ -14,13 +14,14 @@ use std::num::NonZeroU32;
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
+use crate::backend::envlight::Light;
 use glam::{Mat4, Quat, Vec3};
 use glow::HasContext;
 use gltf::animation::{Interpolation, Property, util::ReadOutputs};
 
 use super::gl::{Filter, Program, create_texture};
 
-const MAX_JOINTS: usize = 128;
+const MAX_JOINTS: usize = 160;
 
 const MODEL_VS: &str = r#"#version 300 es
 precision highp float;
@@ -31,12 +32,14 @@ layout(location = 3) in vec4 a_joints;
 layout(location = 4) in vec4 a_weights;
 layout(location = 5) in vec3 a_morph;
 
-uniform mat4 u_joints[128];
+uniform mat4 u_joints[160];
 uniform mat4 u_model; // node transform of unskinned meshes
 uniform mat4 u_view;
 uniform mat4 u_proj;
 uniform int u_skinned;
 uniform float u_morph;
+// outline pass: how far to push the hull out along the normal, clip units per pixel
+uniform vec2 u_outline;
 
 out vec2 v_uv;
 out vec3 v_n;
@@ -51,7 +54,13 @@ void main() {
     }
     v_uv = a_uv;
     v_n = mat3(u_view) * mat3(m) * a_normal;
-    gl_Position = u_proj * u_view * m * vec4(a_pos + a_morph * u_morph, 1.0);
+    vec4 p = u_proj * u_view * m * vec4(a_pos + a_morph * u_morph, 1.0);
+    if (u_outline.x > 0.0) {
+        // constant width on screen whatever the depth
+        vec2 d = (mat3(u_proj) * v_n).xy;
+        if (dot(d, d) > 0.0) p.xy += normalize(d) * u_outline * p.w;
+    }
+    gl_Position = p;
 }
 "#;
 
@@ -65,30 +74,83 @@ uniform vec4 u_color;
 // 0 = opaque, 1 = mask, 2 = blend
 uniform int u_alpha_mode;
 uniform float u_cutoff;
+uniform int u_is_outline;
+// environment: shadow and light tints (brightest channel 1), exposure, and
+// the light direction in view space
+uniform vec3 u_ambient;
+uniform vec3 u_key;
+uniform float u_exposure;
+uniform vec3 u_light;
 
 out vec4 fragColor;
 
 void main() {
     vec4 c = texture(u_tex, v_uv) * u_color;
     if (u_alpha_mode == 1 && c.a < u_cutoff) discard;
-    // mostly flat, like the game's toon look; a soft key light from the front
-    float l = 1.0;
-    if (dot(v_n, v_n) > 0.0) {
-        l = 0.82 + 0.18 * max(dot(normalize(v_n), normalize(vec3(-0.3, 0.6, 0.8))), 0.0);
+    if (u_is_outline == 1) {
+        // ink: a dark, slightly purple version of the surface colour
+        fragColor = vec4(c.rgb * vec3(0.30, 0.26, 0.34), 1.0);
+        return;
     }
+    // cel shading like the game: a hard two-tone step with a cool purple
+    // shadow, plus a faint rim light on the silhouette; the surroundings tint
+    // the shadow, the brightest part of the screen tints the light
+    vec3 shadow = vec3(0.78, 0.72, 0.88) * mix(vec3(1.0), u_ambient, 0.45);
+    vec3 light = mix(vec3(1.0), u_key, 0.3);
+    vec3 shade = light;
+    if (dot(v_n, v_n) > 0.0) {
+        vec3 n = normalize(v_n);
+        float ndl = dot(n, u_light);
+        float lit = smoothstep(0.02, 0.10, ndl);
+        shade = mix(shadow, light, lit);
+        float rim = pow(1.0 - max(n.z, 0.0), 4.0) * lit;
+        shade += rim * 0.25 * light;
+    }
+    shade *= u_exposure;
     float a = u_alpha_mode == 2 ? c.a : 1.0;
     // premultiplied, over a transparent background
-    fragColor = vec4(c.rgb * l * a, a);
+    fragColor = vec4(c.rgb * shade * a, a);
 }
 "#;
+
+/// Ink outline width in texture pixels.
+const OUTLINE_PX: f32 = 1.6;
 
 /// Which clip the character should play.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pose {
     Idle,
     Walk,
+    /// chasing the cursor
+    Run,
     Pat,
     Held,
+    /// thrown, on the way down
+    Fall,
+}
+
+/// The model's clips by role. Extras (idle variants, gestures, run, panic)
+/// are only used where they stay inside the framing of the basic ones.
+#[derive(Default)]
+struct Roles {
+    /// looping idles
+    idle: Vec<usize>,
+    walk: Option<usize>,
+    run: Option<usize>,
+    pat: Vec<usize>,
+    held: Option<usize>,
+    fall: Option<usize>,
+    /// one-shot gestures played now and then while idle, each with an
+    /// optional follow-up (victory pose, then its ending)
+    flourish: Vec<(usize, Option<usize>)>,
+}
+
+/// What the current clip does when it reaches its end.
+#[derive(Clone, Copy, PartialEq)]
+enum Playing {
+    Loop,
+    /// play once, then `then` once, then back to idling
+    Once { then: Option<usize> },
 }
 
 #[derive(Clone, Copy)]
@@ -296,14 +358,23 @@ impl Asset {
 
 pub struct Model3d {
     asset: Asset,
+    // mouth shape nodes, and the one kept visible
+    mouths: Vec<usize>,
+    smile: Option<usize>,
+    // smoothed environment light: ambient tint, key tint, exposure, direction
+    light: [f32; 10],
     program: Program,
     prims: Vec<Prim>,
     textures: Vec<glow::Texture>,
     white: glow::Texture,
-    // clip per pose: idle, walk, pat, held
-    clips: [Option<usize>; 4],
+    roles: Roles,
     pose: Pose,
+    clip: Option<usize>,
+    playing: Playing,
     time: f32,
+    // idle seconds until the next gesture
+    next_flourish: f32,
+    seed: u32,
     // crossfade from the previous clip: (clip, its time, remaining fade)
     fade: Option<(Option<usize>, f32, f32)>,
     view: Mat4,
@@ -322,6 +393,22 @@ pub struct Model3d {
 
 const FADE: f32 = 0.25;
 
+/// Gestures played while idling (start, optional follow-up), if the model has
+/// them and they fit its framing.
+const FLOURISHES: [(&str, Option<&str>); 8] = [
+    ("Victory_Start", Some("Victory_End")),
+    ("Victory_Start_Random", Some("Victory_End_Random")),
+    ("Public01", None),
+    ("Public01_globefish", None),
+    ("Normal_Callsign", None),
+    ("Move_Callsign", None),
+    ("Stand_Callsign", None),
+    ("Exs", None),
+];
+
+/// BA mouth shapes, happiest first: open grin, open smile, closed smiles.
+const HAPPY_MOUTHS: [&str; 6] = ["Mouth_701", "Mouth_703", "Mouth_700", "Mouth_705", "Mouth_704", "Mouth_405"];
+
 /// Three-quarter view turned toward the walking direction (screen right;
 /// the overlay mirrors the texture for the other way), seen a bit from above.
 const YAW: f32 = 0.6;
@@ -339,6 +426,7 @@ impl Model3d {
         let (doc, buffers, images) = gltf::import(path)?;
         let asset = Asset::parse(&doc, &buffers)?;
 
+        // basic roles fall back to anything with a similar name
         let pick = |keys: &[&str]| {
             keys.iter().find_map(|k| {
                 asset.clips.iter().position(|c| c.name.eq_ignore_ascii_case(k)).or_else(|| {
@@ -347,26 +435,23 @@ impl Model3d {
                 })
             })
         };
+        let exact = |k: &str| asset.clips.iter().position(|c| c.name.eq_ignore_ascii_case(k));
         let idle = pick(&["Cafe_Idle", "Normal_Idle", "idle"]).or((!asset.clips.is_empty()).then_some(0));
-        let walk = pick(&["Cafe_Walk", "walk", "run", "move"]).or(idle);
+        let walk = pick(&["Cafe_Walk", "Move_Ing", "walk", "run", "move_ing", "move"]).or(idle);
         let pat = pick(&["Cafe_Reaction", "reaction", "react"]).or(idle);
         let held = pick(&["Formation_Pickup", "pickup", "pick"]).or(pat);
-        let clips = [idle, walk, pat, held];
-        log::info!(
-            "model {}: clips {:?}, using idle {:?} walk {:?} pat {:?} held {:?}",
-            path.display(),
-            asset.clips.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-            idle.map(|i| &asset.clips[i].name),
-            walk.map(|i| &asset.clips[i].name),
-            pat.map(|i| &asset.clips[i].name),
-            held.map(|i| &asset.clips[i].name),
-        );
+        let basic = [idle, walk, pat, held];
 
         let get = |b: gltf::Buffer| buffers.get(b.index()).map(|d| &d.0[..]);
         let mut prims = Vec::new();
         let mut geometry = Vec::new();
         for node in doc.nodes() {
             let Some(mesh) = node.mesh() else { continue };
+            // a desktop pet doesn't carry guns or shields around
+            let name = format!("{} {}", node.name().unwrap_or(""), mesh.name().unwrap_or("")).to_ascii_lowercase();
+            if name.contains("weapon") || name.contains("shield") {
+                continue;
+            }
             let skin = node.skin().map(|s| s.index());
             for p in mesh.primitives() {
                 if p.mode() != gltf::mesh::Mode::Triangles {
@@ -439,8 +524,60 @@ impl Model3d {
         }
         let white = create_texture(gl, 1, 1, &[255; 4], Filter::Nearest, false)?;
 
-        // fit an orthographic camera around every pose the character can take
-        let (view, lo, hi) = fit_camera(&asset, &prims, &geometry, &clips);
+        // fit an orthographic camera around every pose the character can
+        // take; extra clips only count (and get used) if they stay close to
+        // the basic ones, so no character shrinks or gets cut off for them
+        let view = Mat4::from_rotation_x(PITCH) * Mat4::from_rotation_y(YAW);
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for clip in basic.iter().copied().collect::<std::collections::BTreeSet<_>>() {
+            let (a, b) = clip_bounds(&asset, &prims, &geometry, view, clip);
+            (lo, hi) = (lo.min(a), hi.max(b));
+        }
+        if lo.x > hi.x {
+            (lo, hi) = (Vec3::splat(-1.0), Vec3::splat(1.0));
+        }
+        let slack = (hi - lo) * 0.15;
+        let (lim_lo, lim_hi) = (lo - slack, hi + slack);
+        let mut fits = |clip: Option<usize>| {
+            let Some(c) = clip else { return None };
+            let (a, b) = clip_bounds(&asset, &prims, &geometry, view, Some(c));
+            let ok = a.x >= lim_lo.x && a.y >= lim_lo.y && b.x <= lim_hi.x && b.y <= lim_hi.y;
+            if ok {
+                (lo, hi) = (lo.min(a), hi.max(b));
+            }
+            ok.then_some(c)
+        };
+        let mut roles = Roles {
+            walk,
+            held,
+            pat: pat.into_iter().collect(),
+            idle: idle.into_iter().collect(),
+            ..Default::default()
+        };
+        roles.idle.extend(["Formation_Idle", "Rearrange_Idle"].iter().filter_map(|k| fits(exact(k))));
+        roles.pat.extend(["Rearrange_Reaction"].iter().filter_map(|k| fits(exact(k))));
+        roles.run = ["Move_Ing", "Move_Ing01"].iter().find_map(|k| fits(exact(k)));
+        roles.fall = ["Vital_Panic", "Vital_Panic01"].iter().find_map(|k| fits(exact(k)));
+        for (start, end) in FLOURISHES {
+            if let Some(s) = fits(exact(start)) {
+                let then = end.and_then(|e| fits(exact(e)));
+                roles.flourish.push((s, then));
+            }
+        }
+        roles.idle.dedup();
+        roles.pat.dedup();
+        let names = |v: &[usize]| v.iter().map(|&i| asset.clips[i].name.as_str()).collect::<Vec<_>>();
+        log::info!(
+            "model {}: idle {:?} walk {:?} run {:?} pat {:?} held {:?} fall {:?} gestures {:?}",
+            path.display(),
+            names(&roles.idle),
+            roles.walk.map(|i| &asset.clips[i].name),
+            roles.run.map(|i| &asset.clips[i].name),
+            names(&roles.pat),
+            roles.held.map(|i| &asset.clips[i].name),
+            roles.fall.map(|i| &asset.clips[i].name),
+            roles.flourish.iter().map(|f| &asset.clips[f.0].name).collect::<Vec<_>>(),
+        );
         let pad = (hi - lo) * Vec3::new(0.04, 0.03, 0.05);
         let (lo, hi) = (lo - pad, hi + pad);
         // orthographic; y flipped since the overlay samples sprites top row
@@ -452,15 +589,34 @@ impl Model3d {
         let size = (((height as f32 * aspect).round() as u32).max(16), height.max(16));
 
         let (fbo, color, depth) = create_target(gl, size.0, size.1)?;
+        // BA faces: one mesh per mouth shape, shown by morph weight 0. Keep
+        // the widest grin the model has instead of what the clips switch to.
+        let mouths: Vec<(usize, String)> = doc
+            .nodes()
+            .filter_map(|n| Some((n.index(), n.name()?.to_string())))
+            .filter(|(_, name)| name.starts_with("Mouth_"))
+            .collect();
+        let smile = HAPPY_MOUTHS
+            .iter()
+            .find_map(|want| mouths.iter().find(|(_, name)| name == want).map(|(i, _)| *i));
+        let mouths = if smile.is_some() { mouths.into_iter().map(|(i, _)| i).collect() } else { Vec::new() };
+
         Ok(Self {
             asset,
+            mouths,
+            smile,
+            light: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -0.45, 0.55, 0.7],
             program: Program::new(gl, MODEL_VS, MODEL_FS)?,
             prims,
             textures,
             white,
-            clips,
+            clip: roles.idle.first().copied(),
+            roles,
             pose: Pose::Idle,
+            playing: Playing::Loop,
             time: 0.0,
+            next_flourish: 0.0,
+            seed: path.as_os_str().len() as u32 ^ (std::process::id() << 3) ^ 0x9e37_79b9,
             fade: None,
             view,
             proj,
@@ -475,6 +631,95 @@ impl Model3d {
         })
     }
 
+    fn rand(&mut self) -> f32 {
+        self.seed = self.seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        (self.seed >> 8) as f32 / (1u32 << 24) as f32
+    }
+
+    fn any(&mut self, v: &[usize]) -> Option<usize> {
+        (!v.is_empty()).then(|| v[((self.rand() * v.len() as f32) as usize).min(v.len() - 1)])
+    }
+
+    fn clip_for(&mut self, pose: Pose) -> Option<usize> {
+        let r = &self.roles;
+        let (idle, pat) = (r.idle.clone(), r.pat.clone());
+        match pose {
+            Pose::Idle => self.any(&idle),
+            Pose::Walk => self.roles.walk,
+            Pose::Run => self.roles.run.or(self.roles.walk),
+            Pose::Pat => self.any(&pat),
+            Pose::Held => self.roles.held.or(self.roles.fall),
+            Pose::Fall => self.roles.fall.or(self.roles.held),
+        }
+    }
+
+    fn clip_len(&self) -> f32 {
+        self.clip.map_or(1.0, |c| self.asset.clips[c].dur.max(1e-3))
+    }
+
+    /// Switch clips with a crossfade.
+    fn play(&mut self, clip: Option<usize>, playing: Playing) {
+        if clip != self.clip || playing != self.playing {
+            self.fade = Some((self.clip, self.time, FADE));
+            self.clip = clip;
+            self.time = 0.0;
+        }
+        self.playing = playing;
+    }
+
+    /// Idling: switch idle loops now and then, and play a gesture every few
+    /// seconds.
+    fn idle_tick(&mut self, dt: f32) {
+        let len = self.clip_len();
+        match self.playing {
+            Playing::Once { then } if self.time >= len => match then {
+                Some(next) => self.play(Some(next), Playing::Once { then: None }),
+                None => {
+                    let idle = self.roles.idle.clone();
+                    let clip = self.any(&idle);
+                    self.play(clip, Playing::Loop);
+                    self.next_flourish = 5.0 + self.rand() * 10.0;
+                }
+            },
+            Playing::Once { .. } => {}
+            Playing::Loop => {
+                self.next_flourish -= dt;
+                if self.next_flourish <= 0.0 && !self.roles.flourish.is_empty() {
+                    let n = self.roles.flourish.len();
+                    let i = ((self.rand() * n as f32) as usize).min(n - 1);
+                    let (start, then) = self.roles.flourish[i];
+                    self.play(Some(start), Playing::Once { then });
+                } else if self.time >= len && self.roles.idle.len() > 1 && self.rand() < 0.35 {
+                    // at the end of a loop, sometimes a different idle
+                    let idle = self.roles.idle.clone();
+                    let clip = self.any(&idle);
+                    self.play(clip, Playing::Loop);
+                } else if self.time >= len {
+                    self.time -= len;
+                }
+            }
+        }
+    }
+
+    fn ease_light(&mut self, dt: f32, light: Light, mirrored: bool) {
+        let tint = |c: [f32; 3]| {
+            let m = c[0].max(c[1]).max(c[2]).max(1e-3);
+            c.map(|v| v / m)
+        };
+        let luma = 0.2126 * light.ambient[0] + 0.7152 * light.ambient[1] + 0.0722 * light.ambient[2];
+        // dark surroundings dim the character a little, bright ones lift it
+        let exposure = 0.82 + 0.24 * (luma.sqrt() * 1.6).min(1.0);
+        let dx = if mirrored { -light.dir[0] } else { light.dir[0] };
+        let dir = Vec3::new(dx * 1.2, light.dir[1] * 1.2 + 0.2, 0.75).normalize();
+        let a = tint(light.ambient);
+        let k = tint(light.key);
+        let target = [a[0], a[1], a[2], k[0], k[1], k[2], exposure, dir.x, dir.y, dir.z];
+        let f = 1.0 - (-dt * 2.0).exp();
+        for (v, t) in self.light.iter_mut().zip(target) {
+            *v += (t - *v) * f;
+        }
+    }
+
     /// The offscreen texture (premultiplied alpha) and its size.
     pub fn texture(&self) -> (glow::Texture, u32, u32) {
         (self.color, self.size.0, self.size.1)
@@ -482,18 +727,28 @@ impl Model3d {
 
     /// Advance the animation and redraw the offscreen texture.
     /// Leaves the framebuffer, viewport and clear colour as it found them.
-    pub fn draw(&mut self, gl: &glow::Context, dt: f32, pose: Pose) {
-        let clip_of = |p: Pose| self.clips[p as usize];
+    /// `light` is the environment around the character; `mirrored` when the
+    /// overlay flips the texture (walking left), so light from the right
+    /// still lands on the right.
+    pub fn draw(&mut self, gl: &glow::Context, dt: f32, pose: Pose, light: Light, mirrored: bool) {
+        self.ease_light(dt, light, mirrored);
         if pose != self.pose {
-            if clip_of(pose) != clip_of(self.pose) {
-                self.fade = Some((clip_of(self.pose), self.time, FADE));
-                self.time = 0.0;
-            }
             self.pose = pose;
+            let clip = self.clip_for(pose);
+            self.play(clip, Playing::Loop);
+            self.next_flourish = 3.0 + self.rand() * 8.0;
         }
         self.time += dt;
+        if pose == Pose::Idle {
+            self.idle_tick(dt);
+        }
 
-        self.asset.sample(clip_of(self.pose), self.time, &mut self.local);
+        let t = match self.playing {
+            // hold the last frame instead of wrapping around
+            Playing::Once { .. } => self.time.min(self.clip_len() - 1e-3).max(0.0),
+            Playing::Loop => self.time,
+        };
+        self.asset.sample(self.clip, t, &mut self.local);
         if let Some((clip, t, left)) = &mut self.fade {
             *t += dt;
             *left -= dt;
@@ -507,6 +762,11 @@ impl Model3d {
                     a.r = a.r.slerp(b.r, k);
                     a.s = a.s.lerp(b.s, k);
                 }
+            }
+        }
+        if let Some(smile) = self.smile {
+            for &m in &self.mouths {
+                self.local[m].w = if m == smile { 0.0 } else { 1.0 };
             }
         }
         self.asset.globals(&self.local, &mut self.globals);
@@ -534,6 +794,11 @@ impl Model3d {
             let loc = self.program.uniform(gl, "u_proj");
             gl.uniform_matrix_4_f32_slice(loc.as_ref(), false, &proj);
             self.program.set_i32(gl, "u_tex", 0);
+            let l = self.light;
+            self.program.set_vec3(gl, "u_ambient", l[0], l[1], l[2]);
+            self.program.set_vec3(gl, "u_key", l[3], l[4], l[5]);
+            self.program.set_f32(gl, "u_exposure", l[6]);
+            self.program.set_vec3(gl, "u_light", l[7], l[8], l[9]);
             gl.active_texture(glow::TEXTURE0);
 
             // opaque and masked first, blended last without depth writes
@@ -575,6 +840,18 @@ impl Model3d {
                     self.program.set_f32(gl, "u_cutoff", cutoff);
                     gl.bind_vertex_array(Some(vao));
                     gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, 0);
+                    if !pass {
+                        // inverted hull: the inflated back faces peek out around the edges
+                        let px = OUTLINE_PX * 2.0;
+                        self.program.set_vec2(gl, "u_outline", px / self.size.0 as f32, px / self.size.1 as f32);
+                        self.program.set_i32(gl, "u_is_outline", 1);
+                        gl.enable(glow::CULL_FACE);
+                        gl.cull_face(glow::BACK); // these exports wind clockwise
+                        gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, 0);
+                        gl.disable(glow::CULL_FACE);
+                        self.program.set_vec2(gl, "u_outline", 0.0, 0.0);
+                        self.program.set_i32(gl, "u_is_outline", 0);
+                    }
                 }
             }
 
@@ -593,22 +870,13 @@ impl Model3d {
 
 /// View rotation plus view-space bounds of the model over sampled frames of
 /// every clip in use, skinned on the CPU.
-fn fit_camera(
-    asset: &Asset,
-    prims: &[Prim],
-    geometry: &[Geometry],
-    clips: &[Option<usize>; 4],
-) -> (Mat4, Vec3, Vec3) {
+/// View-space bounds of the model over a clip (8 samples).
+fn clip_bounds(asset: &Asset, prims: &[Prim], geometry: &[Geometry], view: Mat4, clip: Option<usize>) -> (Vec3, Vec3) {
     let mut local = Vec::new();
     let mut globals = Vec::new();
     let mut joints = Vec::new();
     let mut points = Vec::new();
-    let mut used: Vec<Option<usize>> = clips.to_vec();
-    used.dedup();
-    if used.is_empty() {
-        used.push(None);
-    }
-    for &clip in &used {
+    {
         let dur = clip.map_or(0.0, |c| asset.clips[c].dur);
         for k in 0..8 {
             asset.sample(clip, dur * k as f32 / 8.0, &mut local);
@@ -638,8 +906,6 @@ fn fit_camera(
             }
         }
     }
-    // glTF models face +Z: turn them toward screen right, then tilt down
-    let view = Mat4::from_rotation_x(PITCH) * Mat4::from_rotation_y(YAW);
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
     for p in &points {
@@ -647,11 +913,7 @@ fn fit_camera(
         lo = lo.min(v);
         hi = hi.max(v);
     }
-    if points.is_empty() {
-        lo = Vec3::splat(-1.0);
-        hi = Vec3::splat(1.0);
-    }
-    (view, lo, hi)
+    (lo, hi)
 }
 
 fn to_rgba(img: &gltf::image::Data) -> Vec<u8> {
@@ -790,9 +1052,9 @@ mod tests {
         };
         let mut model = Model3d::load(&gl, Path::new(&path), 512).unwrap();
         let (_, w, h) = model.texture();
-        for (pose, t) in [(Pose::Idle, 1.0), (Pose::Walk, 0.4), (Pose::Pat, 0.8), (Pose::Held, 1.5)] {
+        for (pose, t) in [(Pose::Idle, 1.0), (Pose::Walk, 0.4), (Pose::Run, 0.3), (Pose::Pat, 0.8), (Pose::Held, 1.5), (Pose::Fall, 0.6)] {
             for _ in 0..(t / 0.05) as usize {
-                model.draw(&gl, 0.05, pose);
+                model.draw(&gl, 0.05, pose, Light::default(), false);
             }
             let mut px = vec![0u8; (w * h * 4) as usize];
             unsafe {
@@ -805,4 +1067,47 @@ mod tests {
             img.save(format!("{out}/{pose:?}.png")).unwrap();
         }
     }
+
+    /// Sample frames of named clips, for picking animations:
+    /// `ANIMA_TEST_MODEL=... ANIMA_TEST_OUT=/dir ANIMA_TEST_CLIPS=a,b cargo test clip_frames`
+    #[test]
+    fn clip_frames() {
+        use glutin::config::{ConfigSurfaceTypes, ConfigTemplateBuilder};
+        use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
+        use glutin::display::{GlDisplay, GetGlDisplay};
+        let (Ok(path), Ok(out), Ok(names)) =
+            (std::env::var("ANIMA_TEST_MODEL"), std::env::var("ANIMA_TEST_OUT"), std::env::var("ANIMA_TEST_CLIPS"))
+        else {
+            return;
+        };
+        let device = glutin::api::egl::device::Device::query_devices().unwrap().next().unwrap();
+        let display = unsafe { glutin::api::egl::display::Display::with_device(&device, None) }.unwrap();
+        let config = unsafe { display.find_configs(ConfigTemplateBuilder::new().with_surface_type(ConfigSurfaceTypes::empty()).build()) }.unwrap().next().unwrap();
+        let attrs = ContextAttributesBuilder::new().with_context_api(ContextApi::Gles(Some(Version::new(3, 0)))).build(None);
+        let ctx = unsafe { config.display().create_context(&config, &attrs) }.unwrap();
+        let _ctx = ctx.make_current_surfaceless().unwrap();
+        let gl = unsafe { glow::Context::from_loader_function_cstr(|s| display.get_proc_address(s) as *const _) };
+        let mut model = Model3d::load(&gl, Path::new(&path), 384).unwrap();
+        let (_, w, h) = model.texture();
+        for name in names.split(',') {
+            let Some(c) = model.asset.clips.iter().position(|c| c.name == name) else { continue };
+            let dur = model.asset.clips[c].dur;
+            for k in 1..=3 {
+                model.clip = Some(c);
+                model.playing = Playing::Loop;
+                model.time = dur * k as f32 / 4.0;
+                model.fade = None;
+                model.draw(&gl, 0.0, Pose::Idle, Light::default(), false);
+                let mut px = vec![0u8; (w * h * 4) as usize];
+                unsafe {
+                    gl.bind_framebuffer(glow::FRAMEBUFFER, Some(model.fbo));
+                    gl.read_pixels(0, 0, w as i32, h as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut px)));
+                    gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                }
+                image::RgbaImage::from_raw(w, h, px).unwrap().save(format!("{out}/{name}_{k}.png")).unwrap();
+            }
+            println!("{name} {dur:.2}s");
+        }
+    }
+
 }

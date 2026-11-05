@@ -125,6 +125,35 @@ pub struct WindowRect {
     pub h: f32,
 }
 
+/// Where each character's sprite is drawn. The front overlay draws them all
+/// on its one surface ([`SharedSurface`]); window mode gives each its own
+/// window (docs/character-windows.md).
+pub trait ActorTarget {
+    /// Called right before actor `actor` (0 = main, then the extras) draws
+    /// its sprite, whose box is `rect` (x0, y0, x1, y1) in overlay pixels.
+    /// Makes the surface to draw into current; false skips the draw.
+    fn begin(&mut self, gl: &glow::Context, actor: usize, rect: [f32; 4]) -> bool;
+    /// After the sprite is drawn.
+    fn end(&mut self, gl: &glow::Context, actor: usize);
+    /// Maps the overlay's clip space onto the target's: (scale x, scale y,
+    /// offset x, offset y). A target wider than the output (all workspaces
+    /// side by side) uses it to fit characters that are off screen.
+    fn clip_xform(&self) -> [f32; 4] {
+        [1.0, 1.0, 0.0, 0.0]
+    }
+}
+
+/// Draw every actor on the surface that is already current.
+pub struct SharedSurface;
+
+impl ActorTarget for SharedSurface {
+    fn begin(&mut self, _: &glow::Context, _: usize, _: [f32; 4]) -> bool {
+        true
+    }
+
+    fn end(&mut self, _: &glow::Context, _: usize) {}
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CharacterConfig {
@@ -160,6 +189,10 @@ pub struct CharacterConfig {
     pub source_happy: String,
     /// More sprites that roam alongside the main one.
     pub extra: Vec<String>,
+    /// Give each walking character its own window where the compositor
+    /// supports placing them (Hyprland with contrib/hyprland-plugin), so
+    /// they move with the workspaces natively.
+    pub windows: bool,
 }
 
 impl CharacterConfig {
@@ -190,6 +223,7 @@ impl Default for CharacterConfig {
             walk: false,
             source_happy: String::new(),
             extra: Vec::new(),
+            windows: true,
         }
     }
 }
@@ -205,6 +239,7 @@ uniform vec2 u_tilt;      // Live2D-style mouse look skew/tilt
 uniform float u_breath;   // breathing scale Y
 uniform float u_bounce;   // audio bounce Y offset
 uniform int u_flip_x;
+uniform vec4 u_clip;      // target clip space: xy scale, zw offset
 
 void main() {
     vec2 uv = a_pos * 0.5 + 0.5;
@@ -222,7 +257,7 @@ void main() {
 
     vec2 clip = u_center + p * u_half_size;
     clip.y += u_bounce;
-    gl_Position = vec4(clip, 0.0, 1.0);
+    gl_Position = vec4(clip * u_clip.xy + u_clip.zw, 0.0, 1.0);
 }
 "#;
 
@@ -855,6 +890,8 @@ pub struct CharacterOverlay {
     smooth_pos: Option<[f32; 2]>,
     start: Instant,
     walk: WalkState,
+    // re-pose at most every this many frames (crowd budget, set by actor 0)
+    pose_every: u64,
 }
 
 /// What the character is doing right now.
@@ -898,11 +935,22 @@ struct WalkState {
     grab: Option<[f32; 2]>,
     // seconds until a jump queued by a notification
     notify_jump: Option<f32>,
+    // dropped at a random spot on the first frame
+    placed: bool,
+    // animation time not yet given to the 3D model (skipped frames)
+    model_dt: f32,
 }
 
 const PAT_DUR: f32 = 1.4;
 // each click while petting keeps it going at least this long
 const PAT_KEEP: f32 = 0.6;
+
+/// How often an on-screen 3D character is re-posed; it still moves every
+/// frame.
+const CONTENT_HZ: f32 = 40.0;
+/// Most 3D re-poses per frame, all characters together.
+const POSE_BUDGET: usize = 24;
+const MIN_POSE_HZ: f32 = 12.0;
 
 const JUMP_DUR: f32 = 0.9;
 const JUMP_AMP: f32 = 2.0;
@@ -1078,12 +1126,9 @@ impl CharacterOverlay {
             smooth_bounce: 0.0,
             smooth_pos: None,
             start: Instant::now(),
+            pose_every: 1,
             walk: WalkState {
-                timer: 1.0 + actor as f32 * 0.7,
                 seed: (std::process::id() + actor as u32 * 7919).wrapping_mul(2654435761),
-                // start the extras spread out to the left of the anchor
-                x: -(actor as f32) * 0.3,
-                target: -(actor as f32) * 0.3,
                 ..Default::default()
             },
         };
@@ -1100,12 +1145,13 @@ impl CharacterOverlay {
 
         if self.actor == 0 {
             self.extras.clear();
-            for (i, src) in self.config.extra.iter().enumerate() {
+            for src in &self.config.extra {
                 let mut cfg = self.config.clone();
                 cfg.source = src.clone();
                 cfg.source_happy = String::new();
                 cfg.extra = Vec::new();
-                match Self::new_actor(gl, cfg, _width, _height, i + 1) {
+                // numbered by what loaded: windows and hit boxes go by actor
+                match Self::new_actor(gl, cfg, _width, _height, self.extras.len() + 1) {
                     Ok(e) => self.extras.push(e),
                     Err(err) => log::warn!("character {src}: {err:#}"),
                 }
@@ -1298,6 +1344,7 @@ impl CharacterOverlay {
         gl: &glow::Context,
         info: &FrameInfo,
         active_window: Option<WindowRect>,
+        target: &mut dyn ActorTarget,
     ) -> Result<()> {
         if !self.config.enabled || self.config.opacity <= 0.001 {
             return Ok(());
@@ -1404,9 +1451,11 @@ impl CharacterOverlay {
         let w = info.width.max(1) as f32;
         let h = info.height.max(1) as f32;
         let dt = (info.delta as f32).clamp(0.001, 0.1);
-        // niri strip: follow its scroll like niri's own animation
+        // strip: Hyprland's row is replayed exactly; niri's scroll is
+        // approximated like niri's own animation
         if self.actor == 0 {
-            let strip = *crate::backend::governor::NIRI_STRIP.lock().unwrap();
+            let hypr = crate::backend::governor::hypr_view();
+            let strip = hypr.or(*crate::backend::governor::STRIP.lock().unwrap());
             // logical px -> clip units (assumes output scale 1)
             let to_clip = 2.0 / w;
             let target = strip.map_or([0.0, 0.0], |st| {
@@ -1490,15 +1539,48 @@ impl CharacterOverlay {
             [0.0; 4]
         };
 
-        if let Some(model) = &mut self.model {
+        // A 3D pose is rendered into the model's own texture, which the
+        // sprite pass reuses: re-pose at ~40 Hz (staggered across actors),
+        // ~10 Hz off screen, while the sprite still moves every frame.
+        // With a crowd on screen, at most POSE_BUDGET re-poses per frame
+        // (the GPU's limit), but never slower than MIN_POSE_HZ.
+        let offscreen = self.hit_rect[2] < 0.0 || self.hit_rect[0] > w;
+        if self.actor == 0 {
+            let on_screen = std::iter::once(self.hit_rect)
+                .chain(self.extras.iter().map(|e| e.hit_rect))
+                .filter(|r| r[2] >= 0.0 && r[0] <= w)
+                .count();
+            let crowd = on_screen.div_ceil(POSE_BUDGET).max(1) as u64;
+            let slowest = ((1.0 / MIN_POSE_HZ) / dt).round().max(1.0) as u64;
+            self.pose_every = crowd.min(slowest);
+            for e in &mut self.extras {
+                e.pose_every = self.pose_every;
+            }
+        }
+        let hz = if offscreen { 10.0 } else { CONTENT_HZ };
+        let every = (((1.0 / hz) / dt).round().clamp(1.0, 16.0) as u64).max(if offscreen { 1 } else { self.pose_every });
+        let redraw = (info.frame + self.actor as u64) % every == 0;
+        self.walk.model_dt += dt;
+        if let (Some(model), true) = (&mut self.model, redraw) {
             use super::model3d::Pose;
             let pose = match self.walk.act {
-                Act::Walk | Act::Chase => Pose::Walk,
+                Act::Walk => Pose::Walk,
+                Act::Chase => Pose::Run,
                 Act::Pat => Pose::Pat,
-                Act::Held | Act::Fall => Pose::Held,
+                Act::Held => Pose::Held,
+                Act::Fall => Pose::Fall,
                 Act::Idle | Act::Jump => Pose::Idle,
             };
-            model.draw(gl, dt, pose);
+            // light around where the character was drawn last frame
+            let [x0, y0, x1, y1] = self.hit_rect;
+            let light = crate::backend::envlight::light_at(
+                (info.width.max(1) as u32, info.height.max(1) as u32),
+                (x0 + x1) * 0.5,
+                (y0 + y1) * 0.5,
+            )
+            .unwrap_or_default();
+            let mirrored = self.config.flip_x ^ (self.config.walk && self.walk.left == self.faces_right);
+            model.draw(gl, std::mem::take(&mut self.walk.model_dt), pose, light, mirrored);
         }
 
         unsafe {
@@ -1516,6 +1598,13 @@ impl CharacterOverlay {
             let (walk_x, moving, jump) = if self.config.walk {
                 let left_room = -(center_clip[0] - half_clip[0] + 1.0);
                 let right_room = 1.0 - (center_clip[0] + half_clip[0]) + extra;
+                if !self.walk.placed {
+                    // everyone at once, anywhere along the strip
+                    self.walk.placed = true;
+                    self.walk.x = left_room + self.walk.rand() * (right_room - left_room);
+                    self.walk.target = self.walk.x;
+                    self.walk.timer = self.walk.rand() * 1.5;
+                }
                 let mouse = (self.config.look_at_mouse && info.mouse != [0.0, 0.0])
                     .then(|| (info.mouse[0] / w) * 2.0 - 1.0 - center_clip[0] + view);
                 // jump height (in half-heights) needed for the head to touch the cursor
@@ -1652,15 +1741,20 @@ impl CharacterOverlay {
             gl.bind_texture(glow::TEXTURE_2D, Some(tex));
             self.program.set_i32(gl, "u_tex", 0);
 
-            gl.bind_vertex_array(Some(self.vao));
-            gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
-            gl.bind_vertex_array(None);
+            if target.begin(gl, self.actor, self.hit_rect) {
+                let [sx, sy, ox, oy] = target.clip_xform();
+                self.program.set_vec4(gl, "u_clip", [sx, sy, ox, oy]);
+                gl.bind_vertex_array(Some(self.vao));
+                gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+                gl.bind_vertex_array(None);
+                target.end(gl, self.actor);
+            }
             gl.bind_texture(glow::TEXTURE_2D, None);
             gl.disable(glow::BLEND);
         }
 
         for e in &mut self.extras {
-            e.render(gl, info, active_window)?;
+            e.render(gl, info, active_window, target)?;
         }
         Ok(())
     }

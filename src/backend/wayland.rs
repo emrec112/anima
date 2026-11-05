@@ -35,16 +35,18 @@ use smithay_client_toolkit::shell::wlr_layer::{
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, PointerHandler};
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use smithay_client_toolkit::reexports::client::protocol::{wl_pointer, wl_seat};
+use smithay_client_toolkit::shell::xdg::XdgShell;
+use smithay_client_toolkit::shell::xdg::window::{Window, WindowConfigure, WindowHandler};
 use smithay_client_toolkit::{
     delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, registry_handlers,
+    delegate_seat, delegate_xdg_shell, delegate_xdg_window, registry_handlers,
 };
 
 use crate::audio::AudioAnalyzer;
 use crate::config::Config;
 use crate::ipc::{self, Command, Request, Response};
 use crate::lyrics::{LyricsEngine, fuse_mouth_visemes};
-use crate::render::character::{CharacterOverlay, Corner, Placement, WindowRect};
+use crate::render::character::{CharacterOverlay, Corner, Placement, SharedSurface, WindowRect};
 use crate::render::image::ImageRenderer;
 use crate::render::scene::SceneRenderer;
 use crate::render::shader::{FallbackRenderer, ShaderRenderer};
@@ -54,7 +56,8 @@ use crate::render::{FrameInfo, Renderer};
 use crate::util;
 use crate::wallpaper::{self, Wallpaper, WallpaperKind};
 
-use self::super::governor::{GovernorEvent, spawn_governor};
+use self::super::charwin::WorkspaceWindows;
+use self::super::governor::{self, GovernorEvent, spawn_governor};
 
 /// Options passed from the CLI to the daemon.
 #[derive(Debug, Clone, Default)]
@@ -115,6 +118,7 @@ pub fn run(opts: RunOptions) -> Result<()> {
         pointer: None,
         compositor,
         layer_shell,
+        xdg_shell: XdgShell::bind(&globals, &qh).ok(),
         output_state,
         qh: qh.clone(),
         egl_display,
@@ -230,6 +234,10 @@ struct FrontOverlayCtx {
     character: Option<CharacterOverlay>,
     // character boxes drawn last frame (they must be repainted when they move)
     prev_rects: Vec<[f32; 4]>,
+    /// Window mode: the characters are drawn into one window per workspace,
+    /// placed by the compositor backend; this surface is a 1x1 frame clock.
+    windowed: bool,
+    windows: WorkspaceWindows,
 }
 
 struct OutputCtx {
@@ -260,6 +268,7 @@ struct OutputCtx {
     last_render: Instant,
     start: Instant,
     frames: u64,
+    fps_since: Instant,
 }
 
 impl OutputCtx {
@@ -291,6 +300,7 @@ impl OutputCtx {
             last_render: Instant::now(),
             start: Instant::now(),
             frames: 0,
+            fps_since: Instant::now(),
         }
     }
 }
@@ -301,6 +311,7 @@ pub struct App {
     pointer: Option<wl_pointer::WlPointer>,
     compositor: CompositorState,
     layer_shell: LayerShell,
+    xdg_shell: Option<XdgShell>,
     output_state: OutputState,
     qh: QueueHandle<App>,
     egl_display: Display,
@@ -433,6 +444,14 @@ impl App {
             self.outputs[idx].character = None;
 
             if self.outputs[idx].front_overlay.is_none() {
+                let windowed = ch_cfg.windows
+                    && ch_cfg.walk
+                    && self.xdg_shell.is_some()
+                    && governor::can_place_windows();
+                governor::WINDOW_MODE.store(windowed, std::sync::atomic::Ordering::Relaxed);
+                if windowed {
+                    log::info!("characters: one window per workspace, placed by the Hyprland plugin");
+                }
                 let surface = self.compositor.create_surface(&self.qh);
                 // Set an empty 0x0 input region so clicks pass straight through!
                 if let Ok(empty_region) = Region::new(&self.compositor) {
@@ -445,10 +464,15 @@ impl App {
                     Some("anima-character"),
                     Some(&self.outputs[idx].output),
                 );
-                layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
+                if windowed {
+                    layer.set_anchor(Anchor::TOP | Anchor::LEFT);
+                    layer.set_size(1, 1);
+                } else {
+                    layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
+                    layer.set_size(0, 0);
+                }
                 layer.set_exclusive_zone(-1);
                 layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-                layer.set_size(0, 0);
                 layer.commit();
 
                 self.outputs[idx].overlay_hidden = true;
@@ -461,6 +485,8 @@ impl App {
                     gl: None,
                     character: None,
                     prev_rects: Vec::new(),
+                    windowed,
+                    windows: WorkspaceWindows::default(),
                 });
             } else {
                 let (w, h) = (self.outputs[idx].width, self.outputs[idx].height);
@@ -508,6 +534,8 @@ impl App {
         let Some(fo) = self.outputs[idx].front_overlay.as_mut() else {
             return;
         };
+        // the character still works in output pixels; only the surface shrinks
+        let (surf_w, surf_h) = if fo.windowed { (scale, scale) } else { (width, height) };
 
         // Ensure click-through input region stays empty on configure.
         if let Ok(empty_region) = Region::new(&self.compositor) {
@@ -531,8 +559,8 @@ impl App {
                 return;
             };
             let (Some(w), Some(h)) = (
-                NonZeroU32::new(width as u32),
-                NonZeroU32::new(height as u32),
+                NonZeroU32::new(surf_w as u32),
+                NonZeroU32::new(surf_h as u32),
             ) else {
                 return;
             };
@@ -561,8 +589,8 @@ impl App {
             fo.gl = Some(gl);
         } else if let (Some(ctx), Some(surface)) = (&fo.gl_context, &fo.gl_surface) {
             if let (Some(w), Some(h)) = (
-                NonZeroU32::new(width as u32),
-                NonZeroU32::new(height as u32),
+                NonZeroU32::new(surf_w as u32),
+                NonZeroU32::new(surf_h as u32),
             ) {
                 let _ = surface.resize(ctx, w, h);
             }
@@ -824,6 +852,7 @@ impl App {
         let cursor = self.cursor_pos;
         let active_win = self.active_window;
         let compositor = &self.compositor;
+        let (xdg, qh, egl_display, egl_config) = (self.xdg_shell.as_ref(), &self.qh, &self.egl_display, &self.egl_alpha_config);
         let oc = &mut self.outputs[idx];
         let (Some(gl), Some(ctx), Some(gl_surface)) =
             (oc.gl.as_ref(), oc.gl_context.as_ref(), oc.gl_surface.as_ref())
@@ -879,7 +908,7 @@ impl App {
                 Ok(mut keep_going) => {
                     if let Some(ch) = oc.character.as_mut() {
                         if ch.config.enabled {
-                            let _ = ch.render(gl, &info, active_win);
+                            let _ = ch.render(gl, &info, active_win, &mut SharedSurface);
                             keep_going = true;
                         }
                     }
@@ -914,9 +943,24 @@ impl App {
                             fo_gl.clear_color(0.0, 0.0, 0.0, 0.0);
                             fo_gl.clear(glow::COLOR_BUFFER_BIT);
                         }
-                        let _ = ch.render(fo_gl, &info, active_win);
+                        if fo.windowed {
+                            if let (Some(xdg), Some(row)) = (xdg, governor::hypr_row()) {
+                                let size = (info.width, info.height);
+                                fo.windows.sync(fo_gl, row, size, oc.scale, xdg, compositor, qh, egl_display, egl_config, fo_ctx);
+                                let _ = fo_ctx.make_current(fo_surf);
+                            }
+                            if let Some(mut target) = fo.windows.begin_frame(fo_gl) {
+                                let _ = ch.render(fo_gl, &info, active_win, &mut target);
+                                let mut place = |slot| governor::hypr_place_workspace(slot);
+                                fo.windows.present(fo_gl, fo_ctx, compositor, &ch.hit_rects(), &mut place);
+                            }
+                            let _ = fo_ctx.make_current(fo_surf);
+                        } else {
+                            let _ = ch.render(fo_gl, &info, active_win, &mut SharedSurface);
+                        }
                         // only the characters take clicks, the rest passes through
-                        if let Ok(region) = Region::new(compositor) {
+                        if fo.windowed {
+                        } else if let Ok(region) = Region::new(compositor) {
                             let sc = oc.scale.max(1) as f32;
                             for r in ch.hit_rects() {
                                 let (x, y) = ((r[0] / sc) as i32, (r[1] / sc) as i32);
@@ -927,9 +971,10 @@ impl App {
                             }
                             fo.layer.wl_surface().set_input_region(Some(region.wl_region()));
                         }
-                        // tell niri only the character boxes changed, not the whole
-                        // screen, so it doesn't recomposite everything each frame
-                        let rects = ch.hit_rects();
+                        // tell the compositor only the character boxes changed, not
+                        // the whole screen, so it doesn't recomposite everything each
+                        // frame (window mode damages its own windows)
+                        let rects = if fo.windowed { Vec::new() } else { ch.hit_rects() };
                         let (bw, bh) = (info.width as f32, info.height as f32);
                         let damage: Vec<glutin::surface::Rect> = rects
                             .iter()
@@ -970,6 +1015,12 @@ impl App {
         if skip_wallpaper && keep_going {
             oc.last_render = Instant::now();
             oc.frames += 1;
+        }
+        // frame rate, for tuning (RUST_LOG=anima::backend::wayland=debug)
+        if oc.frames % 300 == 0 && oc.frames > 0 {
+            let fps = 300.0 / oc.fps_since.elapsed().as_secs_f32();
+            log::debug!("monitor {name}: {fps:.0} fps");
+            oc.fps_since = Instant::now();
         }
         oc.animating = keep_going;
         keep_going
@@ -2029,6 +2080,23 @@ fn read_battery() -> (bool, Option<u8>) {
 }
 
 delegate_compositor!(App);
+delegate_xdg_shell!(App);
+delegate_xdg_window!(App);
+
+// character windows (window mode, see charwin.rs)
+impl WindowHandler for App {
+    fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window) {}
+
+    fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>, window: &Window, _: WindowConfigure, _: u32) {
+        for oc in &mut self.outputs {
+            if let Some(fo) = oc.front_overlay.as_mut() {
+                if fo.windows.configure(window) {
+                    return;
+                }
+            }
+        }
+    }
+}
 delegate_seat!(App);
 delegate_pointer!(App);
 
@@ -2063,8 +2131,16 @@ impl PointerHandler for App {
             if !matches!(ev.kind, PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. }) {
                 continue;
             }
-            let Some(oc) = self.outputs.iter().find(|oc| {
-                oc.front_overlay.as_ref().is_some_and(|fo| fo.layer.wl_surface() == &ev.surface)
+            // the overlay covers the output; a character window sits at its
+            // last drawn spot
+            let Some((oc, (wx, wy))) = self.outputs.iter().find_map(|oc| {
+                let fo = oc.front_overlay.as_ref()?;
+                if fo.layer.wl_surface() == &ev.surface {
+                    return Some((oc, (0, 0)));
+                }
+                let (x, y) = fo.windows.origin_of(&ev.surface)?;
+                let s = oc.scale.max(1);
+                Some((oc, (x / s, y / s)))
             }) else {
                 continue;
             };
@@ -2073,7 +2149,7 @@ impl PointerHandler for App {
                 .info(&oc.output)
                 .and_then(|i| i.logical_position)
                 .unwrap_or((0, 0));
-            let p = (ox as f32 + ev.position.0 as f32, oy as f32 + ev.position.1 as f32);
+            let p = ((ox + wx) as f32 + ev.position.0 as f32, (oy + wy) as f32 + ev.position.1 as f32);
             *crate::backend::pointer::SYNC.lock().unwrap() = Some(p);
         }
     }
