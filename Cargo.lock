@@ -61,6 +61,7 @@ dependencies = [
  "wayland-backend",
  "wayland-client",
  "wayland-protocols-wlr",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

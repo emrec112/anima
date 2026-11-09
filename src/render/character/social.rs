@@ -401,7 +401,7 @@ impl WalkState {
     fn update_pose(&mut self, dt: f32) {
         use std::f32::consts::{PI, TAU};
         // nothing left to stand on: down it comes
-        if self.air > 0.0 && matches!(self.act, Act::Idle | Act::Walk) && !self.social.is_some_and(|s| s.perched) {
+        if self.air > 0.0 && self.climb.is_none() && matches!(self.act, Act::Idle | Act::Walk) && !self.social.is_some_and(|s| s.perched) {
             self.act = Act::Fall;
             self.vx = 0.0;
             self.vy = 0.0;
@@ -658,7 +658,7 @@ impl CharacterOverlay {
         let free: Vec<(usize, f32, f32, f32)> = (0..n)
             .filter(|&i| {
                 let wk = self.walk_ref(i);
-                wk.act == Act::Idle && wk.social.is_none() && wk.race.is_none() && !wk.circle && self.on_screen(i)
+                wk.act == Act::Idle && wk.climb.is_none() && wk.social.is_none() && wk.race.is_none() && !wk.circle && self.on_screen(i)
             })
             .map(|i| (i, self.strip_px(i), self.width_of(i), chat_cool(self.walk_ref(i))))
             .collect();
@@ -739,7 +739,7 @@ impl CharacterOverlay {
         let free: Vec<(usize, f32)> = (0..n)
             .filter(|&i| {
                 let wk = self.walk_ref(i);
-                grounded(wk) && wk.social.is_none() && wk.race.is_none() && !wk.circle && wk.energy >= tn().energy_join_need && chat_cool(wk) <= 0.0 && self.on_screen(i)
+                grounded(wk) && wk.climb.is_none() && wk.social.is_none() && wk.race.is_none() && !wk.circle && wk.energy >= tn().energy_join_need && chat_cool(wk) <= 0.0 && self.on_screen(i)
             })
             .map(|i| {
                 let x = self.strip_px(i);
@@ -1226,7 +1226,7 @@ impl CharacterOverlay {
             .collect();
         let middle = self.view[0] * self.view_w * 0.5 + self.view_w * 0.5;
         let mut free: Vec<(usize, f32)> = (0..n)
-            .filter(|&i| !playing.contains(&i) && !self.walk_ref(i).circle && grounded(self.walk_ref(i)))
+            .filter(|&i| !playing.contains(&i) && self.walk_ref(i).climb.is_none() && !self.walk_ref(i).circle && grounded(self.walk_ref(i)))
             .map(|i| (i, (self.strip_px(i) - middle).abs()))
             .collect();
         free.sort_by(|a, b| a.1.total_cmp(&b.1));
@@ -2332,7 +2332,7 @@ impl CharacterOverlay {
         let nearest = (0..n)
             .filter(|&i| {
                 let wk = self.walk_ref(i);
-                grounded(wk) && wk.social.is_none() && wk.race.is_none() && !wk.circle && wk.energy >= tn().energy_join_need && chat_cool(wk) <= 0.0
+                grounded(wk) && wk.climb.is_none() && wk.social.is_none() && wk.race.is_none() && !wk.circle && wk.energy >= tn().energy_join_need && chat_cool(wk) <= 0.0
             })
             .map(|i| {
                 let x = self.strip_px(i);
@@ -2708,7 +2708,7 @@ impl CharacterOverlay {
         let free: Vec<(usize, f32)> = (0..n)
             .filter(|&i| {
                 let wk = self.walk_ref(i);
-                grounded(wk) && wk.social.is_none() && wk.race.is_none() && !wk.circle && wk.energy >= tn().energy_watch_need && chat_cool(wk) <= tn().overlap_cool && self.on_screen(i)
+                grounded(wk) && wk.climb.is_none() && wk.social.is_none() && wk.race.is_none() && !wk.circle && wk.energy >= tn().energy_watch_need && chat_cool(wk) <= tn().overlap_cool && self.on_screen(i)
             })
             .map(|i| {
                 let x = self.strip_px(i);

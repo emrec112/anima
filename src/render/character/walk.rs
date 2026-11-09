@@ -18,6 +18,8 @@ pub(super) enum Act {
     Fall,
     // dropped from high up: stuck in the ground for a moment
     Planted,
+    // going up the side of a window
+    Climb,
 }
 
 /// Random behaviour: walk (likely), idle, jump (less likely) and, rarely,
@@ -92,6 +94,15 @@ pub(super) struct WalkState {
     pub(super) dropped: f32,
     // how far a jump must go to reach the cursor (half-heights), last frame
     pub(super) reach: f32,
+    // on its way up, on top of, or down from a window
+    pub(super) climb: Option<super::perch::Climb>,
+    pub(super) climb_cool: f32,
+    // jumped off a window on purpose: lands on its feet
+    pub(super) leaped: bool,
+    // lost its grip climbing: lands stuck in the ground
+    pub(super) slipped: bool,
+    // how many of the team are on or heading for windows
+    pub(super) climbers: u32,
     // animation time not yet given to the 3D model (skipped frames)
     pub(super) model_dt: f32,
 }
@@ -174,7 +185,7 @@ impl WalkState {
     /// Advance one frame. `mouse` is the cursor x relative to the anchor.
     /// Returns (offset, moving, jump height 0..1).
     pub(super) fn step(&mut self, dt: f32, min: f32, max: f32, mouse: Option<f32>, reach: f32) -> (f32, bool, f32) {
-        if matches!(self.act, Act::Held | Act::Fall | Act::Planted) {
+        if matches!(self.act, Act::Held | Act::Fall | Act::Planted | Act::Climb) {
             return (self.x, false, 0.0);
         }
         if let Some(t) = self.notify_jump.as_mut() {
@@ -245,7 +256,7 @@ impl WalkState {
                     moving = true;
                 }
             }
-            Act::Jump | Act::Held | Act::Fall | Act::Planted => {}
+            Act::Jump | Act::Held | Act::Fall | Act::Planted | Act::Climb => {}
             Act::Pat => {
                 self.timer -= dt;
                 if self.timer <= 0.0 {

@@ -4,13 +4,20 @@ pub mod character;
 pub mod gl;
 pub mod image;
 pub mod model3d;
+#[cfg(unix)]
 pub mod scene;
+#[cfg(unix)]
 pub mod shader;
 pub mod tuning;
+#[cfg(unix)]
 pub mod text;
+#[cfg(unix)]
 pub mod video;
+#[cfg(unix)]
 pub mod web;
+#[cfg(unix)]
 pub mod we_effect;
+#[cfg(unix)]
 pub mod we_model;
 
 /// Per-frame state handed to every renderer.

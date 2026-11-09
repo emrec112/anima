@@ -17,13 +17,11 @@ path = "src/bin/animad.rs"
 name = "anima"
 path = "src/bin/anima.rs"
 
+[[bin]]
+name = "anima-windows"
+path = "src/bin/anima-windows.rs"
+
 [dependencies]
-smithay-client-toolkit = "0.19.1"
-wayland-client = "0.31"
-wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-wayland-backend = { version = "0.3", features = ["client_system"] }
-calloop = "0.14"
-calloop-wayland-source = "0.4"
 glutin = "0.32"
 raw-window-handle = "0.6"
 glow = "0.18"
@@ -36,12 +34,34 @@ anyhow = "1"
 thiserror = "2"
 log = "0.4"
 env_logger = "0.11"
-libc = "0.2"
 dirs = "6"
 gltf = { version = "1.4.1", default-features = false, features = ["import", "utils", "names"] }
 glam = "0.34.2"
 lewton = "0.10"
 ab_glyph = "0.2.32"
+
+[target.'cfg(unix)'.dependencies]
+smithay-client-toolkit = "0.19.1"
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-backend = { version = "0.3", features = ["client_system"] }
+calloop = "0.14"
+calloop-wayland-source = "0.4"
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [profile.release]
 opt-level = 3

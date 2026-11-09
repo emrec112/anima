@@ -186,7 +186,7 @@ impl Tracker {
             self.re[i] = self.samples[(self.next + i) % SPAN] * self.hann[i];
             self.im[i] = 0.0;
         }
-        crate::audio::fft_in_place(&mut self.re, &mut self.im);
+        crate::fft::fft_in_place(&mut self.re, &mut self.im);
         let band = |b: usize| {
             let bins = self.edges[b]..self.edges[b + 1];
             let n = bins.len() as f32;

@@ -106,6 +106,9 @@ impl Drop for Program {
 fn compile_shader(gl: &glow::Context, kind: u32, source: &str) -> Result<glow::Shader> {
     unsafe {
         let shader = gl.create_shader(kind).map_err(|e| anyhow!(e))?;
+        // Windows has desktop OpenGL, which takes the same shaders
+        #[cfg(windows)]
+        let source = &source.replacen("#version 300 es", "#version 330 core", 1);
         gl.shader_source(shader, source);
         gl.compile_shader(shader);
         if !gl.get_shader_compile_status(shader) {

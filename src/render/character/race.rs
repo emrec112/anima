@@ -113,7 +113,7 @@ impl CharacterOverlay {
     /// One racer goes to each of the others in turn, hops and invites them,
     /// and comes back when there's nobody left to tell.
     fn run_herald(&mut self, race: &mut Race, dt: f32, lo: f32, hi: f32, n: usize) {
-        let free: Vec<usize> = (0..n).filter(|&i| self.walk_ref(i).race.is_none() && !race.refused.contains(&i)).collect();
+        let free: Vec<usize> = (0..n).filter(|&i| self.walk_ref(i).climb.is_none() && self.walk_ref(i).race.is_none() && !race.refused.contains(&i)).collect();
         if race.herald.is_some_and(|h| self.walk_ref(h).race.is_none()) {
             race.herald = None;
         }

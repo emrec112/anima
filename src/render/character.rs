@@ -24,9 +24,11 @@ use serde::{Deserialize, Serialize};
 use super::FrameInfo;
 use super::gl::{Filter, Program, create_texture};
 use super::image::ImageRenderer;
+use super::tuning::get as tn;
 use crate::pkg::decode_tex;
 
 mod interact;
+mod perch;
 mod race;
 mod rope;
 mod social;
@@ -1500,6 +1502,12 @@ impl CharacterOverlay {
                 e.view = view;
             }
             if self.config.walk {
+                let up = std::iter::once(&self.walk).chain(self.extras.iter().map(|e| &e.walk)).filter(|k| k.climb.is_some()).count() as u32;
+                self.walk.climbers = up;
+                for e in &mut self.extras {
+                    e.walk.climbers = up;
+                }
+                self.pair_throws();
                 self.run_race(dt, w);
                 self.run_social(dt, info.mouse);
             }
@@ -1610,7 +1618,7 @@ impl CharacterOverlay {
                 Act::Pat => Pose::Pat,
                 Act::Held => Pose::Held,
                 Act::Fall | Act::Planted => Pose::Fall,
-                Act::Idle | Act::Jump => Pose::Idle,
+                Act::Idle | Act::Jump | Act::Climb => Pose::Idle,
             };
             // light around where the character was drawn last frame
             let [x0, y0, x1, y1] = self.hit_rect;
@@ -1649,6 +1657,7 @@ impl CharacterOverlay {
                     self.walk.x = left_room + self.walk.rand() * (right_room - left_room);
                     self.walk.target = self.walk.x;
                     self.walk.timer = self.walk.rand() * 1.5;
+                    self.walk.climb_cool = tn().climb_every * (0.3 + self.walk.rand());
                 }
                 // a drawn circle: aim for its centre, otherwise for the cursor
                 // the cursor wandered off from the circle: follow the cursor instead
@@ -1686,7 +1695,21 @@ impl CharacterOverlay {
                 if let Some(r) = self.walk.social.as_mut() {
                     r.goal = (r.goal_px * 2.0 / w - 1.0 - center_clip[0]).clamp(left_room, right_room);
                 }
-                let r = self.walk.step(dt, left_room, right_room, mouse, reach);
+                let share = (self.walk.team.max(1.0) * tn().climb_share).ceil().max(1.0) as u32;
+                let geo = perch::Geo {
+                    w,
+                    h,
+                    feet: h - self.config.offset[1],
+                    center_x: center_clip[0],
+                    half: half_clip,
+                    view,
+                    lo: left_room,
+                    hi: right_room,
+                    room: self.walk.climbers < share,
+                };
+                let (lo, hi) = self.walk.perch(dt, &geo, &crate::backend::platforms::snapshot());
+                let mouse = if self.walk.climb.is_some() { None } else { mouse };
+                let r = self.walk.step(dt, lo, hi, mouse, reach);
                 if std::mem::take(&mut self.walk.gesture) {
                     if let Some(m) = self.model.as_mut() {
                         m.gesture_now();

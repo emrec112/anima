@@ -93,6 +93,8 @@ impl CharacterOverlay {
                             a.walk.jump = 0.0;
                         }
                         a.walk.act = Act::Held;
+                        a.walk.leaped = false;
+                        a.walk.slipped = false;
                         a.walk.grab = Some(grab);
                         // carries on from the angle and spin it had
                         let pi = std::f32::consts::PI;
@@ -340,7 +342,8 @@ impl CharacterOverlay {
                         self.walk.timer = 1.0;
                     } else {
                         self.walk.dropped = tn().drop_time;
-                        if hard || self.walk.race_down {
+                        let leaped = std::mem::take(&mut self.walk.leaped);
+                        if (hard && !leaped) || std::mem::take(&mut self.walk.slipped) || self.walk.race_down {
                             self.walk.stick_in();
                         } else {
                             // land with a little bounce

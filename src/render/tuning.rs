@@ -36,6 +36,21 @@ macro_rules! tuning {
 }
 
 tuning! {
+    "Gezinme", "Pencereye tırmanma (Windows)" {
+        climb_every: "Kişi başı deneme aralığı (sn)" = 60.0, 5.0, 600.0, 5.0, 0;
+        climb_share: "Aynı anda çıkabilen oran" = 0.3, 0.05, 1.0, 0.05, 2;
+        climb_speed: "Tırmanma hızı" = 1.6, 0.2, 10.0, 0.1, 1;
+        climb_stay_min: "Üstte en az kalma (sn)" = 15.0, 1.0, 300.0, 1.0, 0;
+        climb_stay_rand: "Kalmaya eklenen rastgele (sn)" = 30.0, 0.0, 300.0, 1.0, 0;
+        climb_min_width: "En dar pencere (px)" = 180.0, 50.0, 1000.0, 10.0, 0;
+        climb_slip: "Tırmanırken düşme ihtimali" = 0.25, 0.0, 1.0, 0.05, 2;
+        climb_hop: "Başka pencereye atlama ihtimali" = 0.6, 0.0, 1.0, 0.05, 2;
+        climb_leap: "Atlama yüksekliği" = 1.2, 0.0, 6.0, 0.1, 1;
+        climb_reach: "Atlanabilen boşluk (karakter genişliği)" = 3.0, 0.0, 20.0, 0.5, 1;
+        climb_jump_up: "Zıplanabilen yükseklik (karakter boyu)" = 1.3, 0.0, 6.0, 0.1, 1;
+        climb_throw: "Fırlatma yüksekliği" = 3.0, 0.0, 12.0, 0.5, 1;
+        climb_give_up: "Pencereye yürümeyi bırakma (sn)" = 25.0, 5.0, 120.0, 5.0, 0;
+    }
     "Gezinme", "Ne yapacağına karar verme (oranlar birbirine göre)" {
         walk_chance: "Yürüme" = 0.30, 0.0, 1.0, 0.01, 2;
         idle_chance: "Durma" = 0.63, 0.0, 1.0, 0.01, 2;
