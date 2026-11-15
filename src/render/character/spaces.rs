@@ -266,6 +266,10 @@ impl CharacterOverlay {
                 a.visible = on_screen && !a.walk.backstage;
             }
         }
+        // workspaces sliding (a switch, the overview): characters go with them at once
+        if self.spaces.list.iter().map(|s| (s.id, s.rect)).ne(list.iter().map(|s| (s.id, s.rect))) {
+            super::scene_moved();
+        }
         self.spaces.list = list;
     }
 

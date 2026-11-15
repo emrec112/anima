@@ -230,6 +230,18 @@ impl SceneZoom {
     }
 }
 
+static SCENE_MOVED: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// Workspaces or the scroll view moved this frame.
+fn scene_moved() {
+    *SCENE_MOVED.lock().unwrap() = Some(std::time::Instant::now());
+}
+
+/// Moved lately: positions follow without smoothing.
+fn scene_moving() -> bool {
+    SCENE_MOVED.lock().unwrap().is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(150))
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CharacterConfig {
@@ -1992,6 +2004,9 @@ impl CharacterOverlay {
             });
             let exact = strip.is_some_and(|st| st.exact);
             let k = if exact { 1.0 } else { (dt * 20.0).min(1.0) };
+            if (target[0] - self.view[0]).abs() > 1e-4 {
+                scene_moved();
+            }
             self.view[0] += (target[0] - self.view[0]) * k;
             self.view[1] = target[1];
             let view = self.view;
@@ -2008,7 +2023,8 @@ impl CharacterOverlay {
 
         let pos = match &mut self.smooth_pos {
             Some(p) => {
-                let pos_lerp = (dt * 14.0).clamp(0.08, 1.0);
+                // the desktop under it is moving: keep up with it exactly
+                let pos_lerp = if scene_moving() { 1.0 } else { (dt * 14.0).clamp(0.08, 1.0) };
                 p[0] += (tx - p[0]) * pos_lerp;
                 p[1] += (ty - p[1]) * pos_lerp;
                 *p
