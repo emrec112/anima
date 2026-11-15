@@ -335,20 +335,6 @@ fn back_header(r: &Rc<Roster>, pop: &Panel, i: usize, name: &str, title: &str) -
     head
 }
 
-fn eye_fixes_path() -> std::path::PathBuf {
-    anima::util::data_dir().join("eyes.json")
-}
-
-fn eye_fixes() -> serde_json::Map<String, serde_json::Value> {
-    std::fs::read_to_string(eye_fixes_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
-}
-
-fn save_eye_fixes(m: &serde_json::Map<String, serde_json::Value>) {
-    if let Ok(text) = serde_json::to_string_pretty(m) {
-        let _ = anima::util::atomic_write(&eye_fixes_path(), text.as_bytes());
-    }
-}
-
 fn wardrobe_all() -> serde_json::Map<String, serde_json::Value> {
     std::fs::read_to_string(anima::render::character::wear::wardrobe_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
