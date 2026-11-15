@@ -980,7 +980,8 @@ impl CharacterOverlay {
             let stuck = match wk.act {
                 Act::Fall => floored && wk.state_age > 1.5,
                 Act::Planted => wk.state_age > 6.0,
-                Act::Jump => wk.state_age > 4.0,
+                // (a high jump at the cursor, or one under an umbrella, can last longer)
+                Act::Jump => wk.state_age > wk.jump_dur.max(3.0) + 1.0,
                 Act::Pat => wk.state_age > 60.0,
                 Act::Chase => wk.state_age > 40.0,
                 _ => false,
