@@ -52,11 +52,18 @@ fn font() -> Option<ab_glyph::FontVec> {
 
 /// The picture of sign `k`, made if it isn't there yet.
 pub fn picture(k: usize) -> Option<PathBuf> {
-    let path = crate::util::data_dir().join("props/signs").join(format!("sign{}_v3.png", k % SIGNS.len()));
+    // asked for every frame while held: made or found once, then remembered
+    static MADE: std::sync::Mutex<[Option<PathBuf>; SIGNS.len()]> = std::sync::Mutex::new([const { None }; SIGNS.len()]);
+    let k = k % SIGNS.len();
+    if let Some(p) = MADE.lock().unwrap()[k].clone() {
+        return Some(p);
+    }
+    let path = crate::util::data_dir().join("props/signs").join(format!("sign{k}_v3.png"));
     if !path.is_file() {
         let _ = std::fs::create_dir_all(path.parent()?);
-        make(SIGNS[k % SIGNS.len()], &font()?).save(&path).ok()?;
+        make(SIGNS[k], &font()?).save(&path).ok()?;
     }
+    MADE.lock().unwrap()[k] = Some(path.clone());
     Some(path)
 }
 

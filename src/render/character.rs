@@ -1141,6 +1141,8 @@ pub struct CharacterOverlay {
     smooth_look: [f32; 2],
     smooth_bounce: f32,
     smooth_pos: Option<[f32; 2]>,
+    // what it had on when last drawn, for this frame's damage (taken once)
+    worn_drawn: std::cell::RefCell<Option<Vec<wear::Worn>>>,
     smooth_tuck: f32,
     start: Instant,
     walk: WalkState,
@@ -1366,6 +1368,7 @@ impl CharacterOverlay {
             smooth_look: [0.0, 0.0],
             smooth_bounce: 0.0,
             smooth_pos: None,
+            worn_drawn: std::cell::RefCell::new(None),
             smooth_tuck: 1.0,
             start: Instant::now(),
             pose_every: 1,
@@ -1617,7 +1620,7 @@ impl CharacterOverlay {
                 // turned or tumbling: anywhere round it
                 let pad = if a.walk.rot.abs() > 0.01 { h * 1.5 } else { h * 0.08 };
                 let pad_turned = h * 0.5;
-                a.worn()
+                a.worn_drawn.borrow_mut().take().unwrap_or_else(|| a.worn())
                     .into_iter()
                     .map(move |t| {
                         let [sx0, sy0, sx1, sy1] = t.rect;
@@ -1705,6 +1708,7 @@ impl CharacterOverlay {
                 let clip = self.zoom.map_or_else(|| target.clip_xform(), |z| z.clip_xform());
                 // worn and held things: those behind it first, then it, then the rest
                 let worn = self.worn();
+                *self.worn_drawn.borrow_mut() = Some(worn.clone());
                 self.draw_worn(gl, &worn, clip, true, slide);
                 self.program.bind(gl);
                 gl.active_texture(glow::TEXTURE0);
@@ -1984,6 +1988,10 @@ impl CharacterOverlay {
         };
 
         if self.actor == 0 {
+            // focus moved to another window, or it moved: follow at once
+            if self.active.is_some() && self.active != active_window {
+                scene_moved();
+            }
             self.active = active_window;
             self.handle_input(info);
         }

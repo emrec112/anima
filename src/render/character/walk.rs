@@ -570,6 +570,8 @@ impl WalkState {
             height = self.arc(t);
             if self.jump <= 0.0 {
                 self.act = Act::Idle;
+                // landed without catching the cursor
+                self.catch_jump = false;
                 self.timer = 0.5 + self.rand();
             }
         }
