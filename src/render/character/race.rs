@@ -124,7 +124,7 @@ impl CharacterOverlay {
         (0..n)
             .filter(|&i| {
                 let wk = self.walk_ref(i);
-                wk.ws != race.ws && !race.visited.contains(&wk.ws) && wk.rest.is_none() && wk.race.is_none() && !wk.backstage && !wk.visiting && !race.stay.contains(&i)
+                wk.ws != race.ws && !race.visited.contains(&wk.ws) && wk.rest.is_none() && wk.race.is_none() && !wk.in_game && !wk.backstage && !wk.visiting && !race.stay.contains(&i)
             })
             .map(|i| self.walk_ref(i).ws)
             .next()
@@ -139,7 +139,7 @@ impl CharacterOverlay {
             return;
         }
         let away = race_ws != race.ws;
-        let free: Vec<usize> = (0..n).filter(|&i| self.walk_ref(i).ws == race_ws && self.walk_ref(i).rest.is_none() && self.walk_ref(i).race.is_none() && !race.refused.contains(&i) && !race.stay.contains(&i) && self.walk_ref(i).act != Act::Travel).collect();
+        let free: Vec<usize> = (0..n).filter(|&i| self.walk_ref(i).ws == race_ws && self.walk_ref(i).rest.is_none() && self.walk_ref(i).race.is_none() && !self.walk_ref(i).in_game && !race.refused.contains(&i) && !race.stay.contains(&i) && self.walk_ref(i).act != Act::Travel).collect();
         if race.herald.is_some_and(|h| self.walk_ref(h).race.is_none()) {
             race.herald = None;
         }
@@ -306,7 +306,7 @@ impl CharacterOverlay {
                     let pick = if !crew.is_empty() {
                         Some(crew.remove(0))
                     } else if !started {
-                        let local: Vec<usize> = (0..n).filter(|&i| self.walk_ref(i).ws == race.ws && self.walk_ref(i).rest.is_none()).collect();
+                        let local: Vec<usize> = (0..n).filter(|&i| self.walk_ref(i).ws == race.ws && self.walk_ref(i).rest.is_none() && !self.walk_ref(i).in_game).collect();
                         (!local.is_empty()).then(|| local[(self.walk.rand() * local.len() as f32) as usize % local.len()])
                     } else {
                         None
