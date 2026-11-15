@@ -2622,18 +2622,13 @@ impl CharacterOverlay {
             self.enlist(i, id);
         }
         let size = self.width_of(top[0]);
-        let gap = size * 0.8;
         let width = self.strip_width_of(top[0]);
-        let centre = finish.clamp(size * 3.0, (width - size * 3.0).max(size * 3.0));
-        // winner in the middle, second on its left, third on its right
-        let spots = [centre, centre - gap, centre + gap];
-        for (k, &i) in top.iter().enumerate() {
-            self.go(i, spots[k], 0.2);
+        let (top_spots, crowd_spots) = concert_spots(finish, width, size, top.len(), crowd.len());
+        for (&i, &x) in top.iter().zip(&top_spots) {
+            self.go(i, x, 0.2);
         }
-        for (k, &i) in crowd.iter().enumerate() {
-            let side = if k % 2 == 0 { -1.0 } else { 1.0 };
-            let slot = (k / 2) as f32;
-            self.go(i, centre + side * (gap * 2.6 + slot * gap * 0.9), 0.2);
+        for (&i, &x) in crowd.iter().zip(&crowd_spots) {
+            self.go(i, x, 0.2);
         }
         let all: Vec<usize> = top.iter().chain(&crowd).copied().collect();
         self.align_park_y(&all);
@@ -6663,9 +6658,68 @@ fn wrestle_arena(x: f32, cw: f32, unit: f32) -> (f32, f32, f32) {
     (lo, hi, (lo + hi) * 0.5)
 }
 
+/// Computes `(top_spots, crowd_spots)` in strip pixels for a post-race concert so
+/// podium performers and cheering spectators fit inside `[size * 0.5, width - size * 0.5]`
+/// without piling up on either edge.
+fn concert_spots(finish: f32, width: f32, size: f32, top_len: usize, crowd_len: usize) -> (Vec<f32>, Vec<f32>) {
+    let lo = size * 0.5;
+    let hi = (width - size * 0.5).max(lo);
+    let span = (hi - lo).max(0.0);
+    let unit_reach = if crowd_len > 0 {
+        2.6 + ((crowd_len - 1) / 2) as f32 * 0.9
+    } else if top_len >= 2 {
+        1.0
+    } else {
+        0.0
+    };
+    let gap = if unit_reach > 0.0 {
+        (size * 0.8).min(span / (2.0 * unit_reach))
+    } else {
+        0.0
+    };
+    let margin = unit_reach * gap;
+    let mid = (lo + hi) * 0.5;
+    let centre = finish.clamp((lo + margin).min(mid), (hi - margin).max(mid));
+    let podium = [centre, centre - gap, centre + gap];
+    let top_spots = podium.into_iter().take(top_len).collect();
+    let crowd_spots = (0..crowd_len)
+        .map(|k| {
+            let side = if k % 2 == 0 { -1.0 } else { 1.0 };
+            let slot = (k / 2) as f32;
+            centre + side * gap * (2.6 + slot * 0.9)
+        })
+        .collect();
+    (top_spots, crowd_spots)
+}
+
 #[cfg(test)]
 mod game_pick_tests {
     use super::*;
+
+    #[test]
+    fn concert_spots_keep_full_crowd_inside_strip_edges() {
+        let size = 180.0;
+        let width = 1920.0;
+        let lo = size * 0.5;
+        let hi = width - size * 0.5;
+
+        for finish in [200.0, width - 200.0] {
+            let (top, crowd) = concert_spots(finish, width, size, 3, 9);
+            assert_eq!(top.len(), 3);
+            assert_eq!(crowd.len(), 9);
+            let mut all: Vec<f32> = top.into_iter().chain(crowd).collect();
+            all.sort_by(f32::total_cmp);
+            assert!(all[0] >= lo - 1e-3, "leftmost {} < {lo}", all[0]);
+            assert!(*all.last().unwrap() <= hi + 1e-3, "rightmost {} > {hi}", all.last().unwrap());
+            for pair in all.windows(2) {
+                assert!(pair[1] - pair[0] > size * 0.5, "cramped pair {pair:?}");
+            }
+        }
+
+        // Wide multi-column strip keeps the podium right at the finish line when there is room.
+        let (top, _) = concert_spots(2400.0, 3840.0, size, 3, 6);
+        assert!((top[0] - 2400.0).abs() < 1e-3);
+    }
 
     #[test]
     fn wrestle_arena_uses_window_width_not_right_edge() {
