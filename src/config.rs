@@ -36,8 +36,6 @@ pub struct General {
     pub mute: bool,
     /// Default volume for video wallpapers, 0.0..=1.0.
     pub volume: f32,
-    /// Automatically mute wallpaper audio when another application plays audio.
-    pub automute: bool,
     /// Enable desktop audio spectrum & beat capture for audio-reactive wallpapers.
     /// Automatically idles at 0% CPU when the active wallpaper does not use audio.
     pub audio_capture: bool,
@@ -80,7 +78,6 @@ impl Default for General {
             fps: 60,
             mute: true,
             volume: 0.0,
-            automute: true,
             audio_capture: true,
             pause_on_fullscreen: true,
             pause_on_maximized: false,
@@ -141,10 +138,6 @@ impl Config {
 
     pub fn monitor(&self, name: &str) -> Option<&MonitorConfig> {
         self.monitors.iter().find(|m| m.name == name)
-    }
-
-    pub fn monitor_mut(&mut self, name: &str) -> Option<&mut MonitorConfig> {
-        self.monitors.iter_mut().find(|m| m.name == name)
     }
 
     pub fn ensure_monitor(&mut self, name: &str) -> &mut MonitorConfig {

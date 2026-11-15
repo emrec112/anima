@@ -262,11 +262,6 @@ pub struct Place {
 
 static PLACE_WS: std::sync::Mutex<Vec<Place>> = std::sync::Mutex::new(Vec::new());
 
-/// The workspace the park window is on, if it's open.
-pub fn park_workspace() -> Option<u64> {
-    place_workspace("park")
-}
-
 /// Where the park, cafe or farm window is, if it's open.
 pub fn place_workspace(place: &str) -> Option<u64> {
     place_rect(place).map(|p| p.ws)

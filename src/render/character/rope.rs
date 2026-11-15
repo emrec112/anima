@@ -48,7 +48,6 @@ void main() {
 pub(super) struct RopeGl {
     program: Program,
     vao: glow::VertexArray,
-    #[allow(dead_code)]
     vbo: glow::Buffer,
 }
 
@@ -719,7 +718,6 @@ void main() {
 pub(super) struct CarrotGl {
     program: Program,
     vao: glow::VertexArray,
-    #[allow(dead_code)]
     vbo: glow::Buffer,
     // accessories' pictures, loaded once (None: couldn't be read)
     images: std::collections::HashMap<std::path::PathBuf, Option<(glow::Texture, f32)>>,

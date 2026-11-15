@@ -1073,7 +1073,6 @@ pub struct CharacterOverlay {
     pub config: CharacterConfig,
     program: Program,
     vao: glow::VertexArray,
-    #[allow(dead_code)]
     vbo: glow::Buffer,
     dummy_tex: glow::Texture,
     sprite_renderer: Option<ImageRenderer>,
@@ -2180,7 +2179,7 @@ impl CharacterOverlay {
             // the anchor when the strip isn't scrolled); `view` converts to screen
             let [view, extra] = self.own_view;
             self.top_air = (1.0 - center_clip[1]) / half_clip[1] + 1.2;
-            let (walk_x, moving, jump) = if true {
+            let (_, moving, jump) = {
                 let left_room = -(center_clip[0] - half_clip[0] + 1.0);
                 let right_room = 1.0 - (center_clip[0] + half_clip[0]) + extra;
                 // visiting a fullscreen app: only the screen itself
@@ -2265,11 +2264,9 @@ impl CharacterOverlay {
                     self.walk.circle_target = None;
                 }
                 r
-            } else {
-                (0.0, false, 0.0)
             };
             // held: follow the cursor; released: fall back down
-            let walk_x = if true {
+            let walk_x = {
                 self.carry(info, dt, center_clip, half_clip, park_h);
                 if let Some(p) = in_park {
                     (center_clip, half_clip) = project_park_clip(
@@ -2283,8 +2280,6 @@ impl CharacterOverlay {
                     );
                 }
                 self.walk.x - view
-            } else {
-                walk_x
             };
             let air = self.walk.air * half_clip[1];
             self.program

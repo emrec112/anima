@@ -138,12 +138,6 @@ impl Command {
             reply: None,
         }
     }
-
-    pub fn respond(self, response: Response) {
-        if let Some(tx) = self.reply {
-            let _ = tx.send(response);
-        }
-    }
 }
 
 /// Start the control socket. Returns immediately; the listener lives on its

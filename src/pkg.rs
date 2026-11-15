@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -61,10 +60,6 @@ impl PackageFs {
 
     pub fn root(&self) -> &Path {
         &self.root
-    }
-
-    pub fn has_pkg_entries(&self) -> bool {
-        !self.entries.is_empty()
     }
 
     pub fn pkg_file_names(&self) -> Vec<&str> {
@@ -1015,9 +1010,6 @@ impl<'a> BinReader<'a> {
         Ok(String::from_utf8_lossy(&b[..end]).into_owned())
     }
 }
-
-#[allow(dead_code)]
-fn _cursor_unused(_: Cursor<&[u8]>) {}
 
 #[cfg(test)]
 mod tests {

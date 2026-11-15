@@ -11,7 +11,7 @@
 //! * FFT and band integration use pre-allocated fixed-size stack buffers with
 //!   zero heap allocations in the hot loop.
 
-use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::ffi::{CString, c_char, c_int, c_void};
 use std::ptr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -531,6 +531,3 @@ pub(crate) fn fft_in_place(re: &mut [f32], im: &mut [f32]) {
         len <<= 1;
     }
 }
-
-#[allow(dead_code)]
-fn _cstr_unused(_: &CStr) {}

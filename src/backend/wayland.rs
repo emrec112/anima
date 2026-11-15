@@ -124,7 +124,6 @@ pub fn run(opts: RunOptions) -> Result<()> {
         output_state,
         qh: qh.clone(),
         egl_display,
-        egl_config,
         egl_alpha_config,
         display_ptr,
         config,
@@ -333,7 +332,6 @@ pub struct App {
     output_state: OutputState,
     qh: QueueHandle<App>,
     egl_display: Display,
-    egl_config: glutin::config::Config,
     egl_alpha_config: glutin::config::Config,
     display_ptr: *mut c_void,
 

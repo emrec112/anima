@@ -351,15 +351,6 @@ pub fn pair_of(item: &Item) -> f32 {
     item.pair
 }
 
-/// One of a pair: the item moved to its side, the left one the mirror
-/// image of the right (its pivot mirrored too, so a wing's root stays at
-/// the back). A hand-made move left or right opens or closes the pair
-/// rather than shifting both. Pictures of pairs face left, as emoji do:
-/// the right one is drawn mirrored (`pair_mirrored`).
-pub fn pair_copy(item: &Item, side: f32, fit: Option<[f32; 4]>) -> (Item, Option<[f32; 4]>) {
-    pair_copy_side(item, side, fit, false)
-}
-
 pub fn pair_copy_side(item: &Item, side: f32, fit: Option<[f32; 4]>, independent: bool) -> (Item, Option<[f32; 4]>) {
     let mut one = item.clone();
     one.offset[0] += side * item.pair;

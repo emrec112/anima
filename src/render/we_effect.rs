@@ -4547,28 +4547,6 @@ fn json_vec(v: &Value, n: usize) -> Vec<f32> {
     out
 }
 
-/// Load all effects for one object.  Effects that fail to compile are skipped
-/// with a warning so a single unsupported shader does not blank the scene.
-pub fn load_object_effects(
-    gl: &glow::Context,
-    pkg: &PackageFs,
-    effects: &[Value],
-) -> Vec<EffectInstance> {
-    let mut out = Vec::new();
-    for effect in effects {
-        if effect.get("visible").and_then(|v| v.as_bool()) == Some(false) {
-            continue;
-        }
-        let Some(file) = effect.get("file").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        if let Some(instance) = EffectInstance::load(gl, pkg, file, effect) {
-            out.push(instance);
-        }
-    }
-    out
-}
-
 // ---------------------------------------------------------------------------
 // Content drawing helpers shared with the scene renderer
 // ---------------------------------------------------------------------------
@@ -4656,28 +4634,6 @@ pub fn create_quad(gl: &glow::Context) -> Result<(glow::VertexArray, glow::Buffe
          1.0, 1.0, 1.0, 0.0,
         -1.0, -1.0, 0.0, 1.0,
          1.0, -1.0, 1.0, 1.0,
-    ];
-    unsafe {
-        let vao = gl.create_vertex_array().map_err(|e| anyhow!(e))?;
-        let vbo = gl.create_buffer().map_err(|e| anyhow!(e))?;
-        gl.bind_vertex_array(Some(vao));
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-        gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytemuck_cast(&VERTS), glow::STATIC_DRAW);
-        gl.enable_vertex_attrib_array(0);
-        gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 16, 0);
-        gl.enable_vertex_attrib_array(1);
-        gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 16, 8);
-        gl.bind_vertex_array(None);
-        Ok((vao, vbo))
-    }
-}
-
-pub fn create_fullscreen_quad(gl: &glow::Context) -> Result<(glow::VertexArray, glow::Buffer)> {
-    const VERTS: [f32; 16] = [
-        -1.0, -1.0, 0.0, 0.0,
-         1.0, -1.0, 1.0, 0.0,
-        -1.0,  1.0, 0.0, 1.0,
-         1.0,  1.0, 1.0, 1.0,
     ];
     unsafe {
         let vao = gl.create_vertex_array().map_err(|e| anyhow!(e))?;

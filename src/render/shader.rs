@@ -468,17 +468,6 @@ impl Renderer for FallbackRenderer {
     }
 }
 
-/// Small helper used by the daemon to throttle mtime checks.
-#[allow(dead_code)]
-pub fn should_check(last: &mut Instant, interval: std::time::Duration) -> bool {
-    if last.elapsed() >= interval {
-        *last = Instant::now();
-        true
-    } else {
-        false
-    }
-}
-
 /// Fully transparent background, used when no wallpaper is set so the
 /// compositor/shell wallpaper underneath stays visible.
 pub struct TransparentRenderer {
