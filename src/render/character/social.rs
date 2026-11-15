@@ -5403,23 +5403,11 @@ impl CharacterOverlay {
         c.stage = Stage::Tag;
     }
 
-    /// Where a race or a game is held: the widest window of the workspace,
-    /// on screen or not; of those about as wide, the nearest. (left edge,
-    /// width) on the strip, logical px.
+    /// Where a race or a game is held on the desktop: the part of the strip
+    /// on screen now. (left edge, width) on the strip, logical px.
     pub(super) fn biggest_column(&self) -> (f32, f32) {
         let w = self.view_w;
-        let view_px = self.view[0] * w * 0.5;
-        let middle = view_px + w * 0.5;
-        let cols = if super::locked() {
-            Vec::new()
-        } else {
-            crate::backend::compositor::current().columns()
-        };
-        let widest = cols.iter().map(|c| c.1).fold(0.0, f32::max);
-        cols.into_iter()
-            .filter(|c| c.1 >= widest * 0.9)
-            .min_by(|a, b| (a.0 + a.1 * 0.5 - middle).abs().total_cmp(&(b.0 + b.1 * 0.5 - middle).abs()))
-            .unwrap_or((view_px, w))
+        (self.view[0] * w * 0.5, w)
     }
 
     /// `biggest_column`, at least half a screen long.
