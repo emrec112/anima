@@ -1404,7 +1404,7 @@ fn wardrobe_view(r: &Rc<Roster>, pop: &Panel, i: usize, name: &str) -> gtk::Widg
     add.connect_clicked(|_| {
         let dir = wear::accessories_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+        crate::daemon::detach(std::process::Command::new("xdg-open").arg(&dir));
     });
     b.append(&add);
     b.upcast()

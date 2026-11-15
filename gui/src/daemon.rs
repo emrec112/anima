@@ -13,6 +13,13 @@ fn quiet(cmd: &mut Command) -> bool {
     cmd.stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
+/// Start without waiting, but reap it from a thread so no zombie stays behind.
+pub fn detach(cmd: &mut Command) {
+    if let Ok(mut c) = cmd.spawn() {
+        std::thread::spawn(move || c.wait());
+    }
+}
+
 fn has_service() -> bool {
     quiet(Command::new("systemctl").args(["--user", "is-enabled", "animad"]))
 }
@@ -41,7 +48,7 @@ pub fn start() {
             cmd.stdout(log).stderr(err);
         }
     }
-    let _ = cmd.spawn();
+    detach(&mut cmd);
 }
 
 pub fn stop() {
@@ -76,13 +83,13 @@ pub fn reload() {
 }
 
 pub fn game(name: &str) {
-    let _ = Command::new(bin("anima")).args(["game", name]).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    detach(Command::new(bin("anima")).args(["game", name]).stdout(Stdio::null()).stderr(Stdio::null()));
 }
 
 pub fn weather(name: &str) {
-    let _ = Command::new(bin("anima")).args(["weather", name]).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    detach(Command::new(bin("anima")).args(["weather", name]).stdout(Stdio::null()).stderr(Stdio::null()));
 }
 
 pub fn race() {
-    let _ = Command::new(bin("anima")).arg("race").stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    detach(Command::new(bin("anima")).arg("race").stdout(Stdio::null()).stderr(Stdio::null()));
 }

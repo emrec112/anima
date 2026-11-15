@@ -362,7 +362,7 @@ fn play_now(ui: &Rc<Ui>) -> gtk::Widget {
     open.add_css_class("suggested-action");
     open.connect_clicked(move |_| {
         if let Ok(me) = std::env::current_exe() {
-            let _ = std::process::Command::new(me).arg("--park").spawn();
+            crate::daemon::detach(std::process::Command::new(me).arg("--park"));
         }
     });
     let row = adw::ActionRow::builder()
