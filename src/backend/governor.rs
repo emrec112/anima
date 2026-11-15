@@ -709,10 +709,12 @@ pub(super) fn run_niri(tx: Sender<GovernorEvent>, sock: &Path) {
                     .lock()
                     .unwrap()
                     .is_some_and(|t| t.elapsed() < NIRI_WAKE);
+                // the overview scrolls with the mouse without telling anyone
                 let busy = woken
                     || moved_at.elapsed() < NIRI_SETTLE
+                    || OVERVIEW_OPEN.load(std::sync::atomic::Ordering::Relaxed)
                     || NIRI_GESTURE.load(std::sync::atomic::Ordering::Relaxed);
-                if busy || last.elapsed() > Duration::from_millis(250) {
+                if busy || last.elapsed() > Duration::from_millis(80) {
                     niri_poll_view(&sock_view);
                     last = std::time::Instant::now();
                     let view = STRIP.lock().unwrap().map_or(f32::NAN, |s| s.view_x);
