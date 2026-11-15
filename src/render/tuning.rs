@@ -76,13 +76,6 @@ tuning! {
         mentor_boost: "Learning from a teacher" = 0.5, 0.0, 2.0, 0.05, 2;
         skill_volley: "Beginners miss the ball" = 0.3, 0.0, 1.0, 0.05, 2;
     }
-    "Games", "Blind man's buff" {
-        blind_min: "Fewest players" = 4.0, 3.0, 12.0, 1.0, 0;
-        blind_time: "Longest time (s)" = 50.0, 10.0, 300.0, 5.0, 0;
-        blind_walk: "Blindfolded walking speed" = 0.1, 0.02, 1.0, 0.01, 2;
-        blind_sound_every: "Someone giggles every (s)" = 3.5, 0.5, 30.0, 0.5, 1;
-        blind_sneak: "Sneaking to another hiding place (per s)" = 0.06, 0.0, 1.0, 0.01, 2;
-    }
     "Roaming", "Liveliness" {
         land_laugh: "Laughing after being thrown (s)" = 0.5, 0.0, 5.0, 0.1, 1;
         laugh_time: "Laughing it off after a tumble (s)" = 1.6, 0.0, 10.0, 0.1, 1;

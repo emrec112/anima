@@ -101,8 +101,6 @@ enum Stage {
     Gift,
     Samba,
     Volley,
-    // blind man's buff
-    Blind,
     // rods out along the floor, reeling in whatever bites
     Fishing,
     // practising alone, or shown how by someone better at it
@@ -247,25 +245,6 @@ struct Fishing {
 /// What can come up on the line: prop kind, points, whether it's a good one.
 const CATCHES: [(i32, f32, bool); 6] = [(0, 3.0, true), (1, 4.0, true), (15, 5.0, true), (16, 2.0, true), (17, 0.0, false), (18, 0.0, false)];
 
-/// Blind man's buff: who is "it" (blindfolded), what the others hide
-/// behind, who's still hidden.
-struct Blind {
-    it: usize,
-    lo: f32,
-    hi: f32,
-    // strip x and look of each hiding place
-    spots: Vec<(f32, i32)>,
-    // who hides behind which
-    hiding: Vec<(usize, usize)>,
-    // where "it" is groping its way to, and whether that was a sound it heard
-    goal: f32,
-    heard: bool,
-    wander: f32,
-    next_sound: f32,
-    // music notes floating up from a giggle: who, seconds since
-    notes: Vec<(usize, f32)>,
-    t: f32,
-}
 
 /// A present from one to the other.
 struct Gift {
@@ -313,14 +292,13 @@ enum Game {
     Tag,
     Samba,
     Volley,
-    Blind,
     Fishing,
 }
 
 impl Chat {
     fn new(id: u32, members: Vec<usize>, stage: Stage, timer: f32) -> Self {
         let talker = members[0];
-        Chat { by_hand: false, world: None, watch_left: Vec::new(), stage_t: 0.0, last_stage: stage, practice: None, encore_due: false, leavers: Vec::new(), offer: None, hold: 0.0, fishing: None, blind: None, part_queue: Vec::new(), bribe: None, cheated: None, cheat_t: -1.0, cheater: None, cheat_side: 0.0, cheat_on: false, id, members, stage, timer, talker, turn: 0.0, bob: 0.0, strolls: 0, joined_walking: false, quiet: 0.0, games: 0, played: Vec::new(), watchers: Vec::new(), spots: Vec::new(), base: Vec::new(), offset: 0.0, pull: 0.0, pull_target: 0.0, it: 0, chase: 0, teams: (Vec::new(), Vec::new()), queue: Vec::new(), step: 0, wait: 0.0, scores: Vec::new(), winner: None, rewarded: false, long: None, regroup: false, forced: None, recent: Vec::new(), tag_free: 0.0, tag_turn: 0.0, tug_grab: None, tug_held: 0.0, tug_clicks: 0, cuts: 0, cut_timer: 0.0, all_cheer: false, volley: None, wrestle: None, mood: 0.0, carrot: None, samba_new: Vec::new(), gift: None, play: None }
+        Chat { by_hand: false, world: None, watch_left: Vec::new(), stage_t: 0.0, last_stage: stage, practice: None, encore_due: false, leavers: Vec::new(), offer: None, hold: 0.0, fishing: None, part_queue: Vec::new(), bribe: None, cheated: None, cheat_t: -1.0, cheater: None, cheat_side: 0.0, cheat_on: false, id, members, stage, timer, talker, turn: 0.0, bob: 0.0, strolls: 0, joined_walking: false, quiet: 0.0, games: 0, played: Vec::new(), watchers: Vec::new(), spots: Vec::new(), base: Vec::new(), offset: 0.0, pull: 0.0, pull_target: 0.0, it: 0, chase: 0, teams: (Vec::new(), Vec::new()), queue: Vec::new(), step: 0, wait: 0.0, scores: Vec::new(), winner: None, rewarded: false, long: None, regroup: false, forced: None, recent: Vec::new(), tag_free: 0.0, tag_turn: 0.0, tug_grab: None, tug_held: 0.0, tug_clicks: 0, cuts: 0, cut_timer: 0.0, all_cheer: false, volley: None, wrestle: None, mood: 0.0, carrot: None, samba_new: Vec::new(), gift: None, play: None }
     }
 }
 
@@ -467,7 +445,6 @@ pub(super) struct Chat {
     // seconds talking, towards splitting into talkers and players
     mood: f32,
     carrot: Option<Carrot>,
-    blind: Option<Blind>,
     fishing: Option<Fishing>,
     // samba: still walking over to join the row
     samba_new: Vec<usize>,
@@ -871,12 +848,12 @@ impl CharacterOverlay {
         if self.social_tick <= 0.0 {
             self.social_tick = tn().look_every;
             if self.race.is_none() && self.social_age >= tn().warm_alone && !self.moods.fretting && !self.spaces.fs_on {
-                for c in chats.iter_mut().filter(|c| matches!(c.stage, Stage::Fishing | Stage::Blind | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Volley | Stage::Cheer)) {
+                for c in chats.iter_mut().filter(|c| matches!(c.stage, Stage::Fishing | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Volley | Stage::Cheer)) {
                     self.try_watch(c, n);
                 }
                 for c in chats.iter_mut() {
                     let full = c.members.len() >= self.group_cap();
-                    if !matches!(c.stage, Stage::Notice | Stage::Stroll | Stage::Concert | Stage::Blind | Stage::Fishing | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Samba | Stage::Volley | Stage::Part | Stage::Play | Stage::Practice) && self.overlap_join(c, n, full) {
+                    if !matches!(c.stage, Stage::Notice | Stage::Stroll | Stage::Concert | Stage::Fishing | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Samba | Stage::Volley | Stage::Part | Stage::Play | Stage::Practice) && self.overlap_join(c, n, full) {
                         continue;
                     }
                     if !full && matches!(c.stage, Stage::Talk | Stage::Stroll) {
@@ -1108,7 +1085,6 @@ impl CharacterOverlay {
                 Stage::Gift => "gift",
                 Stage::Samba => "samba",
                 Stage::Volley => "volleyball",
-                Stage::Blind => "blind man's buff",
                 Stage::Fishing => "fishing",
                 Stage::Practice => "training",
                 Stage::Concert => "concert",
@@ -1230,14 +1206,14 @@ impl CharacterOverlay {
         self.keep_world(c, n);
         let game = matches!(c.stage, Stage::Cursor | Stage::Long | Stage::Tug | Stage::Wrestle | Stage::Volley | Stage::Cheer);
         // tag: you can carry someone off and they're still in it when put down
-        let tag = matches!(c.stage, Stage::Fishing | Stage::Blind | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Long);
+        let tag = matches!(c.stage, Stage::Fishing | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Long);
         let mut left = Vec::new();
         let carried = crate::backend::pointer::BUTTON_DOWN.load(std::sync::atomic::Ordering::Relaxed);
         // picked up by hand: still in the game while in the air; put down
         // near the others it carries on, thrown far off it's out
         let by_hand = matches!(
             c.stage,
-            Stage::Contest | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Blind | Stage::Concert | Stage::Cheer
+            Stage::Contest | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Concert | Stage::Cheer
         );
         // a chat isn't broken off either: the others run after whoever's carried away
         let talk = matches!(c.stage, Stage::Approach | Stage::Talk | Stage::Stroll);
@@ -1420,13 +1396,6 @@ impl CharacterOverlay {
                         }
                     }
                     self.steer(i, px, 0.3);
-                }
-            }
-            Stage::Blind => {
-                // "it" gropes on from where it lands; a hider runs back to its place
-                let spot = c.blind.as_ref().and_then(|b| b.hiding.iter().find(|h| h.0 == i).and_then(|h| b.spots.get(h.1))).map(|s| s.0);
-                if let Some(x) = spot {
-                    self.run_to(i, x, tn().tag_run);
                 }
             }
             // these chase each other about anyway
@@ -1799,7 +1768,6 @@ impl CharacterOverlay {
             (Game::Carrot, t.carrot_min as usize),
             (Game::Samba, t.samba_min as usize),
             (Game::Volley, t.volley_min as usize),
-            (Game::Blind, t.blind_min as usize),
             (Game::Fishing, t.fish_min as usize),
         ]
         .iter()
@@ -1957,10 +1925,9 @@ impl CharacterOverlay {
             Game::Gift => self.start_gift(c),
             Game::Samba => self.start_samba(c),
             Game::Volley => self.start_volley(c),
-            Game::Blind => self.start_blind(c),
             Game::Fishing => self.start_fishing(c),
         }
-        if matches!(game, Game::Tag | Game::Carrot | Game::Blind | Game::Cursor | Game::Volley | Game::Contest) {
+        if matches!(game, Game::Tag | Game::Carrot | Game::Cursor | Game::Volley | Game::Contest) {
             self.spread_park_y(&c.members);
         }
     }
@@ -2036,7 +2003,6 @@ impl CharacterOverlay {
             "gift" => (Game::Gift, t.gift_min),
             "samba" => (Game::Samba, t.samba_min),
             "volley" => (Game::Volley, t.volley_min),
-            "blind" => (Game::Blind, t.blind_min),
             "fishing" => (Game::Fishing, t.fish_min),
             _ => return true,
         };
@@ -2050,7 +2016,7 @@ impl CharacterOverlay {
             .iter()
             .filter(|c| {
                 c.forced.is_some()
-                    || matches!(c.stage, Stage::Fishing | Stage::Blind | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Cheer | Stage::RaceCall | Stage::RaceWait)
+                    || matches!(c.stage, Stage::Fishing | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Cheer | Stage::RaceCall | Stage::RaceWait)
             })
             .flat_map(|c| c.members.iter().copied())
             .collect();
@@ -3389,154 +3355,6 @@ impl CharacterOverlay {
         c.fishing = Some(f);
     }
 
-    /// Blind man's buff in the widest window: things to hide behind appear,
-    /// everyone but "it" hides, "it" gets a blindfold.
-    fn start_blind(&mut self, c: &mut Chat) {
-        let (x, cw) = self.big_window();
-        let (lo, hi) = (x + 60.0, x + cw - 60.0);
-        let mut order = c.members.clone();
-        for k in (1..order.len()).rev() {
-            let j = (self.walk.rand() * (k + 1) as f32) as usize % (k + 1);
-            order.swap(k, j);
-        }
-        let it = order[0];
-        let hiders: Vec<usize> = order[1..].to_vec();
-        let count = (hiders.len() + 1 + (self.walk.rand() * 2.0) as usize).max(2);
-        let slot = (hi - lo).max(1.0) / count as f32;
-        let mut spots = Vec::new();
-        for k in 0..count {
-            let x = lo + (k as f32 + 0.5 + (self.walk.rand() - 0.5) * 0.4) * slot;
-            let kind = 9 + (self.walk.rand() * 3.0) as i32 % 3;
-            spots.push((x, kind));
-        }
-        let mut free: Vec<usize> = (0..spots.len()).collect();
-        let size = self.row_size(c);
-        let mut hiding = Vec::new();
-        for &h in &hiders {
-            let k = (self.walk.rand() * free.len() as f32) as usize % free.len().max(1);
-            let spot = if free.is_empty() { (self.walk.rand() * spots.len() as f32) as usize % spots.len() } else { free.swap_remove(k) };
-            let side = if self.walk.rand() < 0.5 { -1.0 } else { 1.0 };
-            self.go(h, spots[spot].0 + side * size * 0.12, tn().tag_run * 1.1);
-            hiding.push((h, spot));
-        }
-        let mid = (lo + hi) * 0.5;
-        self.go(it, mid, 0.16);
-        log::debug!("chat {}: blind man's buff, {it} is it, {} hiding places", c.id, spots.len());
-        c.blind = Some(Blind { it, lo, hi, spots, hiding, goal: mid, heard: false, wander: 0.0, next_sound: 2.0, notes: Vec::new(), t: 0.0 });
-        c.scores.clear();
-        c.step = 9;
-        c.timer = 40.0;
-        c.regroup = true;
-        c.stage = Stage::Blind;
-    }
-
-    fn run_blind(&mut self, c: &mut Chat, dt: f32) {
-        let Some(mut b) = c.blind.take() else { return };
-        if !c.members.contains(&b.it) {
-            self.end_game(c);
-            return;
-        }
-        b.hiding.retain(|h| c.members.contains(&h.0));
-        let size = self.row_size(c);
-        if c.step == 9 {
-            if self.all_arrived(c) {
-                self.clear_happy(&c.members);
-                log::debug!("chat {}: everyone's hidden, off it goes", c.id);
-                c.step = 0;
-                c.timer = tn().blind_time;
-            } else if c.timer <= 0.0 {
-                self.end_game(c);
-                return;
-            } else {
-                self.chatter(c, dt);
-            }
-            c.blind = Some(b);
-            return;
-        }
-        b.t += dt;
-        b.notes.retain_mut(|n| {
-            n.1 += dt;
-            n.1 < 1.6
-        });
-        // "it" gropes about, slowly, or makes for a sound it heard
-        let ix = self.strip_px(b.it);
-        b.wander -= dt;
-        if !b.heard && b.wander <= 0.0 {
-            b.wander = 2.5 + self.walk.rand() * 2.5;
-            b.goal = b.lo + self.walk.rand() * (b.hi - b.lo);
-        }
-        if (ix - b.goal).abs() < 20.0 {
-            b.heard = false;
-            b.wander = b.wander.min(0.8);
-        }
-        let knack = self.skilled(b.it, "blind man's buff", 0.8, 1.3);
-        let speed = if b.heard { tn().blind_walk * 1.4 } else { tn().blind_walk } * knack;
-        if self.walk_ref(b.it).petted <= 0.0 {
-            self.run_to(b.it, b.goal.clamp(b.lo, b.hi), speed);
-        }
-        // now and then someone can't help giggling
-        b.next_sound -= dt;
-        if b.next_sound <= 0.0 && !b.hiding.is_empty() {
-            b.next_sound = tn().blind_sound_every * (0.6 + self.walk.rand() * 0.8);
-            let k = (self.walk.rand() * b.hiding.len() as f32) as usize % b.hiding.len();
-            let h = b.hiding[k].0;
-            let wk = self.walk_of(h);
-            let secs = tn().laugh_time * 0.6;
-            wk.laugh(secs);
-            b.notes.push((h, 0.0));
-            // a good ear finds the giggle; a beginner goes the wrong way about
-            let ear = 3.5 - 2.6 * self.skill(b.it, "blind man's buff");
-            let miss = (self.walk.rand() - 0.5) * size * ear;
-            b.goal = self.strip_px(h) + miss;
-            b.heard = true;
-            log::debug!("chat {}: {h} giggles, {} heads that way", c.id, b.it);
-        }
-        // tiptoeing off to another hiding place, away from "it"
-        for k in 0..b.hiding.len() {
-            let (h, at) = b.hiding[k];
-            if !self.arrived(h) || self.walk.rand() >= dt * tn().blind_sneak {
-                continue;
-            }
-            let options: Vec<usize> = (0..b.spots.len()).filter(|&j| j != at && (b.spots[j].0 - ix).abs() > size * 1.5 && !b.hiding.iter().any(|o| o.1 == j)).collect();
-            if options.is_empty() {
-                continue;
-            }
-            let j = options[(self.walk.rand() * options.len() as f32) as usize % options.len()];
-            let side = if self.walk.rand() < 0.5 { -1.0 } else { 1.0 };
-            self.go(h, b.spots[j].0 + side * size * 0.12, tn().tag_run * 0.8);
-            b.hiding[k].1 = j;
-        }
-        // bumped into someone: caught
-        let caught = b
-            .hiding
-            .iter()
-            .position(|&(h, _)| b.t > 2.5 && (self.strip_px(h) - ix).abs() < size * 0.45 && grounded(self.walk_ref(h)) && grounded(self.walk_ref(b.it)));
-        if let Some(k) = caught {
-            let (h, _) = b.hiding.remove(k);
-            log::debug!("chat {}: {} caught {h}", c.id, b.it);
-            c.scores.push((h, b.t));
-            let wk = self.walk_of(h);
-            let secs = tn().laugh_time;
-            wk.laugh(secs);
-            self.walk_of(b.it).start_jump(tn().jump_height * 0.5);
-            // out of the game: off to the side to watch
-            let out = b.hiding.len() as f32 + c.scores.len() as f32;
-            let edge = if ix < (b.lo + b.hi) * 0.5 { b.hi - size * 0.6 * out } else { b.lo + size * 0.6 * out };
-            self.go(h, edge.clamp(b.lo, b.hi), 0.2);
-            b.heard = false;
-        }
-        if b.hiding.is_empty() || c.timer <= 0.0 {
-            // never found: they win
-            for &(h, _) in &b.hiding {
-                c.scores.push((h, b.t + 1000.0));
-            }
-            log::debug!("chat {}: blind man's buff over", c.id);
-            self.end_game(c);
-            return;
-        }
-        c.blind = Some(b);
-    }
-
     /// Just behind the last one pulling on that side.
     fn tug_end(&self, c: &Chat, right: bool) -> f32 {
         let team = if right { &c.teams.1 } else { &c.teams.0 };
@@ -4603,49 +4421,7 @@ impl CharacterOverlay {
                 }
             }
         }
-        // blind man's buff: the hiding places, an arrow over "it", the giggles
         let time = self.start.elapsed().as_secs_f32();
-        for c in self.chats.iter().filter(|c| c.stage == Stage::Blind) {
-            let Some(b) = c.blind.as_ref() else { continue };
-            let rect = |i: usize| if i == 0 { self.hit_rect } else { self.extras.get(i - 1).map_or([0.0; 4], |e| e.hit_rect) };
-            let op = |i: usize| if i == 0 { self.opaque } else { self.extras.get(i - 1).map_or([0.3, 0.1, 0.9], |e| e.opaque) };
-            let r = rect(b.it);
-            let height = r[3] - r[1];
-            if height <= 0.0 {
-                continue;
-            }
-            let own = if b.it == 0 { self.own_view } else { self.extras[b.it - 1].own_view };
-            let view = own[0] * self.view_w * 0.5;
-            // the ground: the lowest feet among them (whoever hops, the
-            // hiding places stay put)
-            let floor = c
-                .members
-                .iter()
-                .map(|&m| {
-                    let r = rect(m);
-                    r[3] - (r[3] - r[1]) * (1.0 - op(m)[2])
-                })
-                .fold(f32::MIN, f32::max);
-            for &(x, kind) in &b.spots {
-                let (w, h) = (height * 0.7, height * 0.66);
-                let sx = x - view;
-                v.push((kind, [sx - w * 0.5, floor - h, sx + w * 0.5, floor], false, c.members[0]));
-            }
-            // "it": a little arrow bobbing over its head
-            let o = op(b.it);
-            let size = height * 0.16;
-            let x = (r[0] + r[2]) * 0.5;
-            let head = r[1] + height * o[1];
-            let y = head - size * (0.9 + 0.25 * (time * 6.0).sin());
-            v.push((7, [x - size * 0.5, y - size * 0.5, x + size * 0.5, y + size * 0.5], false, b.it));
-            for &(h, t) in &b.notes {
-                let r = rect(h);
-                let size = (r[3] - r[1]) * 0.15;
-                let x = (r[0] + r[2]) * 0.5 + (r[3] - r[1]) * (0.2 + 0.05 * (t * 8.0).sin());
-                let y = r[1] + (r[3] - r[1]) * (0.2 - 0.35 * t);
-                v.push((12, [x - size * 0.5, y - size * 0.5, x + size * 0.5, y + size * 0.5], false, h));
-            }
-        }
         // tag: a little arrow bobbing over whoever is "it"
         for c in self.chats.iter().filter(|c| c.stage == Stage::Tag && c.step != 9) {
             let r = if c.it == 0 { self.hit_rect } else if let Some(e) = self.extras.get(c.it - 1) { e.hit_rect } else { continue };
@@ -5973,7 +5749,6 @@ impl CharacterOverlay {
             Stage::Gift => "gift",
             Stage::Samba => "samba",
             Stage::Volley => "volleyball",
-            Stage::Blind => "blind man's buff",
             Stage::Fishing => "fishing",
             Stage::Concert => "concert",
             _ => "",
@@ -6265,7 +6040,6 @@ impl CharacterOverlay {
             Game::Gift => 1,
             Game::Volley => 2,
             Game::Tag => 7,
-            Game::Blind => 10,
             Game::Fishing => 13,
             Game::Tug | Game::Wrestle => 3,
             _ => 15,
@@ -6566,7 +6340,6 @@ impl CharacterOverlay {
             Stage::Gift => self.run_gift(c, dt),
             Stage::Samba => self.run_samba(c, dt),
             Stage::Volley => self.run_volley(c, dt),
-            Stage::Blind => self.run_blind(c, dt),
             Stage::Fishing => self.run_fishing(c, dt),
             Stage::Practice => return self.run_practice(c, dt),
             Stage::Play => return self.run_play(c, dt),
