@@ -5077,8 +5077,14 @@ impl CharacterOverlay {
         // sit further along than the workspace's own width says)
         let furthest = c.base.iter().map(|b| b.1).fold(0.0, f32::max);
         let width = self.strip_width_of(c.members[0]).max(furthest + 300.0);
+        // dancing in a window (the park): the row stays inside it
+        let (floor, ceil) = c
+            .members
+            .iter()
+            .find_map(|&i| self.place_here(i))
+            .map_or((0.0, width), |p| (p.x, (p.x + p.w).max(p.x + 1.0)));
         let far = (tn().samba_step * 1.6).max(30.0);
-        let slot = |x: f32, marched: f32| (x + marched).clamp(0.0, width);
+        let slot = |x: f32, marched: f32| (x + marched).clamp(floor, ceil);
         let mut away = Vec::new();
         for &(i, x) in &c.base.clone() {
             if !c.members.contains(&i) || !grounded(self.walk_ref(i)) {
@@ -5107,11 +5113,11 @@ impl CharacterOverlay {
         c.wait = tn().samba_beat;
         c.turn = -c.turn;
         // at the end of the strip the whole row turns back
-        let edge = 120.0f32.min(width * 0.25);
+        let edge = 120.0f32.min((ceil - floor) * 0.25);
         let step = c.offset * tn().samba_step;
         let lo = c.base.iter().map(|b| b.1).fold(f32::MAX, f32::min);
         let hi = c.base.iter().map(|b| b.1).fold(f32::MIN, f32::max);
-        if lo + c.pull + step < edge || hi + c.pull + step > width - edge {
+        if lo + c.pull + step < floor + edge || hi + c.pull + step > ceil - edge {
             c.offset = -c.offset;
         }
         c.pull += c.offset * tn().samba_step;
