@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub const SIGNS: [&str; 11] = [
     "Pet me!", "Pat pat?", "Headpats\nplease", "Hi there!", "Play with\nme!", "Cheer\nup!", "Snack\ntime?", "Hug?",
     // kept for their moments, not picked at random
-    "Günaydın!", "Uyu\nartık", "İyi ki\ndoğdun!",
+    "Good\nmorning!", "Go to\nsleep!", "Happy\nbirthday!",
 ];
 pub const HUG: usize = 7;
 // the ones picked at random come first
