@@ -300,9 +300,12 @@ fn play_now(ui: &Rc<Ui>) -> gtk::Widget {
         .column_spacing(10)
         .homogeneous(true)
         .build();
-    let actions: [(&str, &str, &'static str, &'static str); 8] = [
+    let actions: [(&str, &str, &'static str, &'static str); 11] = [
         ("Train", "applications-science-symbolic", "game", "train"),
         ("Sign", "starred-symbolic", "game", "sign"),
+        ("Good morning", "weather-few-clouds-symbolic", "game", "goodmorning"),
+        ("Go to sleep", "night-light-symbolic", "game", "goodnight"),
+        ("Birthday", "emblem-favorite-symbolic", "game", "birthday"),
         ("Rain", "weather-showers-symbolic", "weather", "rain"),
         ("Snow", "weather-snow-symbolic", "weather", "snow"),
         ("Night", "weather-clear-night-symbolic", "weather", "night"),

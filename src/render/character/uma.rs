@@ -77,3 +77,25 @@ pub(super) fn head_box(img: &image::RgbaImage) -> Option<[f32; 4]> {
     let crown = (top..neck).find(|&y| (mid - span..=mid + span).filter(|&x| solid(x as u32, y as u32)).count() > span)?;
     Some([hl as f32 / w as f32, crown as f32 / h as f32, hr as f32 / w as f32, neck as f32 / h as f32])
 }
+
+// birthdays from each one's profile on umamusu.wiki (month, day)
+const BIRTHDAYS: [(&str, u32, u32); 13] = [
+    ("Agnes Tachyon", 4, 13),
+    ("Wonder Acute", 3, 14),
+    ("Sweep Tosho", 5, 9),
+    ("Curren Chan", 3, 31),
+    ("Daitaku Helios", 4, 10),
+    ("Haru Urara", 2, 27),
+    ("Mejiro McQueen", 4, 3),
+    ("Nice Nature", 4, 16),
+    ("Rice Shower", 3, 5),
+    ("Silence Suzuka", 5, 1),
+    ("Still in Love", 5, 2),
+    ("Kitasan Black", 3, 10),
+    ("Agnes Digital", 5, 15),
+];
+
+/// Whether today is `name`'s birthday.
+pub(super) fn birthday(name: &str, month: u32, day: u32) -> bool {
+    BIRTHDAYS.iter().any(|b| b.0 == name && b.1 == month && b.2 == day)
+}

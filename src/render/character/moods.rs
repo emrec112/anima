@@ -116,6 +116,12 @@ pub(super) struct Moods {
     pub(super) skills: Skills,
     pub(super) keepsakes: Keepsakes,
     pub(super) bond_tick: f32,
+    // the day "good morning" was last said, kept on disk across restarts
+    greeted: Option<String>,
+    morning_t: f32,
+    // a birthday: next look, and (birthday one, sign holder, seconds left)
+    bday_t: f32,
+    bday: Option<(usize, usize, f32)>,
 }
 
 impl WalkState {
@@ -407,6 +413,7 @@ impl CharacterOverlay {
             self.walk_of(i).rest_tick(dt, idle, drowsy, crowded);
         }
         self.run_weather(dt, n);
+        self.run_greetings(dt, n, idle);
         self.run_loose(dt, n);
 
         let opened = desktop::OPENED.load(Relaxed);
@@ -436,6 +443,109 @@ impl CharacterOverlay {
                 wk.notify_jump = Some(wk.rand() * 0.5);
             }
         }
+    }
+
+    /// "Good morning" once a day, the first time someone's at the computer in
+    /// the morning, and a little gathering on a birthday.
+    fn run_greetings(&mut self, dt: f32, n: usize, idle: bool) {
+        let (y, m, d) = super::weather::today();
+        let minutes = super::weather::minutes_now();
+        if (300..720).contains(&minutes) && !idle && !super::locked() {
+            let day = format!("{y}-{m:02}-{d:02}");
+            let path = crate::util::data_dir().join("greeted");
+            let greeted = self.moods.greeted.get_or_insert_with(|| std::fs::read_to_string(&path).unwrap_or_default().trim().to_string());
+            if *greeted != day {
+                // a few seconds in, so it's seen
+                self.moods.morning_t += dt;
+                if self.moods.morning_t > 5.0 {
+                    if let Some(i) = self.free_here(n).first().copied() {
+                        self.hold_sign(i, super::sign::MORNING);
+                        self.moods.greeted = Some(day.clone());
+                        let _ = std::fs::write(&path, day);
+                    }
+                }
+            }
+        }
+        self.moods.bday_t -= dt;
+        if self.moods.bday.is_none() && self.moods.bday_t <= 0.0 {
+            self.moods.bday_t = 480.0 + self.walk.rand() * 420.0;
+            let here = self.spaces.active;
+            let b = (0..n).find(|&i| {
+                let wk = self.walk_ref(i);
+                (here == 0 || wk.ws == here) && wk.at_leisure() && wk.act == Act::Idle && super::uma::birthday(&self.character_name(i), m, d)
+            });
+            if let Some(b) = b {
+                self.start_birthday(b, n);
+            }
+        }
+        if let Some((b, holder, left)) = self.moods.bday {
+            let left = left - dt;
+            self.moods.bday = (left > 0.0 && b < n && holder < n).then_some((b, holder, left));
+            if self.moods.bday.is_some() {
+                // the one bringing the sign holds it up once beside her
+                let near = (self.strip_px(holder) - self.strip_px(b)).abs() < self.actor_w(b) * 1.6;
+                if near && self.walk_ref(holder).act == Act::Idle && self.walk_ref(holder).at_leisure() {
+                    self.hold_sign(holder, super::sign::BIRTHDAY);
+                    self.moods.bday = None;
+                }
+            }
+        }
+    }
+
+    /// Birthday: a few friends nearby walk over to `b`, hop for her, and one
+    /// holds up "happy birthday".
+    pub(super) fn start_birthday(&mut self, b: usize, n: usize) {
+        let mut friends: Vec<usize> = self.free_here(n).into_iter().filter(|&i| i != b).collect();
+        friends.sort_by(|&a, &c| self.bond(a, b).0.total_cmp(&self.bond(c, b).0).reverse());
+        friends.truncate(3);
+        let Some(&holder) = friends.first() else { return };
+        let (bx, w) = (self.strip_px(b), self.actor_w(b));
+        let wk = self.walk_of(b);
+        wk.act = Act::Idle;
+        wk.target = wk.x;
+        wk.timer = wk.timer.max(20.0);
+        for (k, &f) in friends.iter().enumerate() {
+            let side = if self.strip_px(f) < bx { -1.0 } else { 1.0 };
+            let x = bx + side * w * (0.9 + 0.8 * (k / 2) as f32);
+            let walk = (self.strip_px(f) - x).abs() / w.max(1.0) * 0.6;
+            self.walk_toward(f, x);
+            self.protest(f, b, 4, walk + 0.5);
+        }
+        self.moods.bday = Some((b, holder, 30.0));
+    }
+
+    /// Stands `i` still with sign `k` held up for 20-30 s.
+    fn hold_sign(&mut self, i: usize, k: usize) {
+        let wk = self.walk_of(i);
+        wk.act = Act::Idle;
+        wk.target = wk.x;
+        wk.timer = wk.timer.max(0.5);
+        wk.sign = Some(k);
+        wk.sign_left = 20.0 + wk.rand() * 10.0;
+        wk.sign_t = wk.sign_t.max(120.0);
+    }
+
+    /// Those free on the workspace in use, nearest the middle of the screen first.
+    pub(super) fn free_here_pub(&mut self, n: usize) -> Vec<usize> {
+        self.free_here(n)
+    }
+
+    fn free_here(&mut self, n: usize) -> Vec<usize> {
+        let here = self.spaces.active;
+        let middle = self.view[0] * self.view_w * 0.5 + self.view_w * 0.5;
+        let mut free: Vec<usize> = (0..n)
+            .filter(|&i| {
+                let wk = self.walk_ref(i);
+                wk.at_leisure() && matches!(wk.act, Act::Idle | Act::Walk) && wk.rest.is_none() && (here == 0 || wk.ws == here)
+            })
+            .collect();
+        free.sort_by(|&a, &b| (self.strip_px(a) - middle).abs().total_cmp(&(self.strip_px(b) - middle).abs()));
+        free
+    }
+
+    fn actor_w(&self, i: usize) -> f32 {
+        let r = self.actor_rect(i);
+        r[2] - r[0]
     }
 
     /// A few of those with nothing to do, in no particular order.
@@ -564,7 +674,9 @@ impl CharacterOverlay {
             } else if wk.sign_t <= 0.0 {
                 wk.sign_t = 120.0 + wk.rand() * 300.0;
                 if seen && wk.act == Act::Idle && wk.at_leisure() && wk.rand() < 0.6 {
-                    wk.sign = Some((wk.rand() * super::sign::SIGNS.len() as f32) as usize);
+                    // up past 2 at night: "go to sleep" more often than not
+                    let late = (120..300).contains(&super::weather::minutes_now());
+                    wk.sign = Some(if late && wk.rand() < 0.7 { super::sign::NIGHT } else { (wk.rand() * super::sign::RANDOM as f32) as usize });
                     wk.sign_left = 20.0 + wk.rand() * 10.0;
                 }
             }

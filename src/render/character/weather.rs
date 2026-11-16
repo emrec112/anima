@@ -68,6 +68,14 @@ pub(super) fn minutes_now() -> u32 {
     (tm.tm_hour * 60 + tm.tm_min) as u32
 }
 
+/// Today as (year, month 1-12, day of month), local time.
+pub(super) fn today() -> (i32, u32, u32) {
+    let t = unsafe { libc::time(std::ptr::null_mut()) };
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&t, &mut tm) };
+    (tm.tm_year + 1900, tm.tm_mon as u32 + 1, tm.tm_mday as u32)
+}
+
 pub(super) fn spawn() {
     static STARTED: std::sync::Once = std::sync::Once::new();
     STARTED.call_once(|| {

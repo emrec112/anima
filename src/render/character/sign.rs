@@ -4,8 +4,17 @@
 
 use std::path::PathBuf;
 
-pub const SIGNS: [&str; 8] = ["Pet me!", "Pat pat?", "Headpats\nplease", "Hi there!", "Play with\nme!", "Cheer\nup!", "Snack\ntime?", "Hug?"];
+pub const SIGNS: [&str; 11] = [
+    "Pet me!", "Pat pat?", "Headpats\nplease", "Hi there!", "Play with\nme!", "Cheer\nup!", "Snack\ntime?", "Hug?",
+    // kept for their moments, not picked at random
+    "Günaydın!", "Uyu\nartık", "İyi ki\ndoğdun!",
+];
 pub const HUG: usize = 7;
+// the ones picked at random come first
+pub const RANDOM: usize = 8;
+pub const MORNING: usize = 8;
+pub const NIGHT: usize = 9;
+pub const BIRTHDAY: usize = 10;
 
 pub fn is_hug(k: usize) -> bool {
     k % SIGNS.len() == HUG

@@ -1937,7 +1937,14 @@ impl CharacterOverlay {
     /// True once the game is under way (or can't ever be).
     fn force_game(&mut self, chats: &mut Vec<Chat>, name: &str, n: usize) -> bool {
         // hold up a hug (or random) sign right away on a free character
-        if name == "hug" || name == "sign" {
+        if name == "birthday" {
+            let pick = self.free_here_pub(n).first().copied();
+            if let Some(b) = pick {
+                self.start_birthday(b, n);
+            }
+            return true;
+        }
+        if matches!(name, "hug" | "sign" | "goodmorning" | "goodnight") {
             let busy: Vec<usize> = chats.iter().flat_map(|c| c.members.iter().copied()).collect();
             let middle = self.view[0] * self.view_w * 0.5 + self.view_w * 0.5;
             let eligible = |this: &Self, i: usize| {
@@ -1951,8 +1958,12 @@ impl CharacterOverlay {
             if let Some(i) = pick {
                 let kind = if name == "hug" {
                     super::sign::HUG
+                } else if name == "goodmorning" {
+                    super::sign::MORNING
+                } else if name == "goodnight" {
+                    super::sign::NIGHT
                 } else {
-                    (self.walk.rand() * super::sign::SIGNS.len() as f32) as usize
+                    (self.walk.rand() * super::sign::RANDOM as f32) as usize
                 };
                 let wk = self.walk_of(i);
                 wk.act = Act::Idle;
