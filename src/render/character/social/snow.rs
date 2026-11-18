@@ -1,6 +1,5 @@
 //! Snowball fight: two sides scoop up little snowballs and throw them at
-//! each other, moving about, now and then running after someone (who runs
-//! off on its own; a few may go after the same one). Someone may start a
+//! each other, moving about. Someone may start a
 //! giant snowball: rolled up big, then sent rolling at the other side. The
 //! other side may come and push back; whoever loses gets rolled over,
 //! flattened for a moment, and it bursts against the wall.
@@ -26,13 +25,6 @@ pub(super) struct Thrower {
     target: usize,
     // how long it'll keep at it (s): runs down, and it's had enough
     patience: f32,
-    // running after someone, and for how long so far
-    chase: Option<usize>,
-    chase_t: f32,
-    // running away from someone; which way it's going, and for how long
-    fleeing: bool,
-    flee_dir: f32,
-    flee_t: f32,
 }
 
 /// A snowball in the air: strip x and screen y it left from and is going to.
@@ -151,7 +143,7 @@ impl CharacterOverlay {
 
     fn thrower(&mut self, i: usize, t: f32) -> Thrower {
         let patience = tn().snow_stay_min + self.walk.rand() * tn().snow_stay_rand;
-        Thrower { i, phase: 0, t, ball: 0.0, target: i, patience, chase: None, chase_t: 0.0, fleeing: false, flee_dir: 1.0, flee_t: 0.0 }
+        Thrower { i, phase: 0, t, ball: 0.0, target: i, patience }
     }
 
     /// Free to start or join a snowball fight (or a snowman).
@@ -320,7 +312,7 @@ impl CharacterOverlay {
         for h in &mut s.hands {
             h.patience -= dt * rate;
             let in_side = s.sides[0].contains(&h.i) || s.sides[1].contains(&h.i);
-            if h.patience <= 0.0 && in_side && h.phase == 0 && h.t < 0.0 && h.chase.is_none() && !h.fleeing {
+            if h.patience <= 0.0 && in_side && h.phase == 0 && h.t < 0.0 {
                 done.push(h.i);
             }
         }
@@ -399,96 +391,12 @@ impl CharacterOverlay {
     }
 
     fn snow_hands(&mut self, c: &Chat, s: &mut Snow, dt: f32, throwing: bool) {
-        let chased: Vec<usize> = s.hands.iter().filter_map(|h| h.chase).collect();
         for k in 0..s.hands.len() {
             let mut h = s.hands[k];
             let i = h.i;
             // off with the giant one, or flat on the floor
             let Some(side) = Self::side_of(s, i) else { continue };
             if self.walk_ref(i).flat > 0.0 {
-                continue;
-            }
-            let size = self.width_of(i);
-            let x = self.strip_px(i);
-            // being run after: off it goes, on its own, away from them
-            if chased.contains(&i) {
-                let chasers: Vec<usize> = s.hands.iter().filter(|o| o.chase == Some(i)).map(|o| o.i).collect();
-                let near = chasers.iter().map(|&o| self.strip_px(o)).min_by(|a, b| (a - x).abs().total_cmp(&(b - x).abs())).unwrap_or(x);
-                if !h.fleeing {
-                    h.fleeing = true;
-                    h.flee_t = 0.0;
-                    h.flee_dir = if near < x { 1.0 } else { -1.0 };
-                    // seen them coming: a startled hop, and off
-                    let wk = self.walk_of(i);
-                    wk.start_bob(tn().jump_height * 0.25);
-                    wk.smile = wk.smile.max(1.0);
-                }
-                h.flee_t += dt;
-                // away from whoever's nearest (unless it's slipping past them just now)
-                if h.flee_t >= 0.0 {
-                    h.flee_dir = if near < x { 1.0 } else { -1.0 };
-                }
-                // away from them, to the back of its own end and no further
-                let edge = self.height_of(i) * 0.5;
-                let wall = if h.flee_dir > 0.0 { s.hi + edge } else { s.lo - edge };
-                let cornered = (wall - x) * h.flee_dir < edge * 0.5;
-                let close = (near - x).abs() < self.height_of(i) * 1.2;
-                // backed into the corner with them right there: a dash past them, now and then
-                if cornered && close && h.flee_t > 0.6 && self.walk.rand() < dt * 1.5 {
-                    h.flee_dir = -h.flee_dir;
-                    h.flee_t = -0.7;
-                    log::debug!("chat {}: {i} slips past", c.id);
-                }
-                // flat out at first, then it tires
-                let pace = if h.flee_t < 1.2 { tn().snow_flee_speed } else { tn().snow_flee_speed * 0.65 };
-                let wall = if h.flee_dir > 0.0 { s.hi + edge } else { s.lo - edge };
-                let step = x + h.flee_dir * size * 2.0;
-                let goal = if h.flee_dir > 0.0 { step.min(wall) } else { step.max(wall) };
-                self.steer(i, goal, pace);
-                if cornered && !close {
-                    // waiting in the corner, wary
-                    if let Some(r) = self.walk_of(i).social.as_mut() {
-                        r.face_left = near < x;
-                    }
-                }
-                s.hands[k] = h;
-                continue;
-            }
-            if h.fleeing {
-                // got away (or got hit): back to its own side
-                h.fleeing = false;
-                let (a, b) = Self::snow_zone(s, side);
-                let goal = a + self.walk.rand() * (b - a);
-                self.steer(i, goal, 0.16);
-            }
-            // running after someone with a ball ready: throws once close
-            if let Some(t) = h.chase {
-                h.chase_t += dt;
-                let gone = !c.members.contains(&t) || Self::side_of(s, t) != Some(1 - side) || self.walk_ref(t).flat > 0.0;
-                let tx = self.strip_px(t);
-                // close enough to see the whites of its eyes (the box is wider than the body)
-                let reach = self.height_of(i) * 0.6;
-                if gone {
-                    h.chase = None;
-                    let (a, b) = Self::snow_zone(s, side);
-                    let goal = a + self.walk.rand() * (b - a);
-                    self.steer(i, goal, 0.18);
-                } else if ((tx - x).abs() < reach || h.chase_t > 6.0) && grounded(self.walk_ref(i)) {
-                    self.face(i, t);
-                    self.snow_throw(s, i, t);
-                    h.chase = None;
-                    h.ball = 0.0;
-                    h.phase = 0;
-                    h.t = -(0.6 + self.walk.rand() * 1.0);
-                    let (a, b) = Self::snow_zone(s, side);
-                    let goal = a + self.walk.rand() * (b - a);
-                    self.steer(i, goal, 0.16);
-                } else {
-                    // right up to it, faster than it can run
-                    let ahead = if tx > x { 1.0 } else { -1.0 };
-                    self.steer(i, tx + ahead * size * 0.5, tn().snow_chase_speed);
-                }
-                s.hands[k] = h;
                 continue;
             }
             if !self.arrived(i) {
@@ -511,22 +419,6 @@ impl CharacterOverlay {
                         if standing.is_empty() {
                             s.hands[k] = h;
                             continue;
-                        }
-                        // sometimes it runs after one instead: often the one
-                        // already being chased (everyone after the same one)
-                        if self.walk.rand() < tn().snow_chase {
-                            let pick = if !chased.is_empty() && self.walk.rand() < 0.6 {
-                                chased[(self.walk.rand() * chased.len() as f32) as usize % chased.len()]
-                            } else {
-                                standing[(self.walk.rand() * standing.len() as f32) as usize % standing.len()]
-                            };
-                            if standing.contains(&pick) {
-                                log::debug!("chat {}: {i} runs after {pick}", c.id);
-                                h.chase = Some(pick);
-                                h.chase_t = 0.0;
-                                s.hands[k] = h;
-                                continue;
-                            }
                         }
                         let pick = standing[(self.walk.rand() * standing.len() as f32) as usize % standing.len()];
                         h.target = pick;
@@ -621,7 +513,7 @@ impl CharacterOverlay {
                 let free: Vec<usize> = s.sides[side]
                     .iter()
                     .copied()
-                    .filter(|&i| s.hands.iter().any(|h| h.i == i && h.phase == 0 && h.chase.is_none() && !h.fleeing))
+                    .filter(|&i| s.hands.iter().any(|h| h.i == i && h.phase == 0))
                     .collect();
                 if s.sides[side].len() >= 2 && !free.is_empty() {
                     let i = free[(self.walk.rand() * free.len() as f32) as usize % free.len()];
@@ -640,7 +532,7 @@ impl CharacterOverlay {
         let free: Vec<usize> = s.sides[side]
             .iter()
             .copied()
-            .filter(|&i| s.hands.iter().any(|h| h.i == i && h.phase == 0 && h.chase.is_none() && !h.fleeing))
+            .filter(|&i| s.hands.iter().any(|h| h.i == i && h.phase == 0))
             .collect();
         let Some(&i) = free.get((self.walk.rand() * free.len() as f32) as usize % free.len().max(1)) else { return };
         s.sides[side].retain(|&m| m != i);
@@ -671,8 +563,6 @@ impl CharacterOverlay {
                 if let Some(h) = s.hands.iter_mut().find(|h| h.i == i) {
                     h.phase = 0;
                     h.t = -1.0;
-                    h.chase = None;
-                    h.fleeing = false;
                 }
             }
         }
@@ -746,15 +636,12 @@ impl CharacterOverlay {
                     let foes: Vec<usize> = s.sides[1 - r.side]
                         .iter()
                         .copied()
-                        .filter(|&i| self.walk_ref(i).flat <= 0.0 && s.hands.iter().any(|h| h.i == i && h.chase.is_none()))
+                        .filter(|&i| self.walk_ref(i).flat <= 0.0)
                         .collect();
                     let most = (1 + (self.walk.rand() * 3.0) as usize).min(foes.len());
                     for &i in foes.iter().take(most) {
                         s.sides[1 - r.side].retain(|&m| m != i);
                         r.resist.push(i);
-                        if let Some(h) = s.hands.iter_mut().find(|h| h.i == i) {
-                            h.fleeing = false;
-                        }
                     }
                     if !r.resist.is_empty() {
                         log::debug!("chat {}: {:?} run over to push it back", c.id, r.resist);
@@ -762,17 +649,12 @@ impl CharacterOverlay {
                 }
                 for (k, &i) in r.resist.clone().iter().enumerate() {
                     let at = behind(&r, k, -r.dir);
-                    if (self.strip_px(i) - at).abs() > 6.0 && self.arrived(i) {
-                        self.steer(i, at, 0.26);
-                    }
+                    self.steer(i, at, 0.26);
                 }
+                // in place: they start pushing straight away, nobody waits
+                // for the other side (whoever gets there in time pushes back)
                 let crew_there = r.crew.iter().all(|&i| self.arrived(i));
-                let resist_there = r.resist.iter().all(|&i| self.arrived(i));
-                if crew_there && r.resist.is_empty() && r.t > 1.2 {
-                    // nobody in the way: off it goes
-                    r.losers = 1 - r.side;
-                    self.launch_giant(c, s, &mut r);
-                } else if !r.resist.is_empty() && ((crew_there && resist_there) || r.t > 6.0) {
+                if (crew_there && r.t > 0.8) || r.t > 5.0 {
                     r.phase = 3;
                     r.t = 0.0;
                     r.base = r.x;
@@ -780,6 +662,8 @@ impl CharacterOverlay {
             }
             3 => {
                 // shoving it back and forth: whoever pushes harder wins
+                // only those who've got to it push back; the rest are still running
+                let at_ball: Vec<usize> = r.resist.iter().enumerate().filter(|&(k, &i)| (self.strip_px(i) - behind(&r, k, -r.dir)).abs() < width * 0.5).map(|(_, &i)| i).collect();
                 r.force_t -= dt;
                 if r.force_t <= 0.0 {
                     r.force_t = 0.4 + self.walk.rand() * 0.4;
@@ -787,16 +671,23 @@ impl CharacterOverlay {
                     for &i in &r.crew {
                         force += self.walk.rand() * self.skilled(i, "snowball fight", 0.6, 1.3);
                     }
-                    for &i in &r.resist {
+                    for &i in &at_ball {
                         force -= self.walk.rand() * self.skilled(i, "snowball fight", 0.6, 1.3);
                     }
-                    r.force = force * 60.0;
+                    // nobody against it: it gets going quickly
+                    r.force = force * 60.0 + if at_ball.is_empty() { 150.0 } else { 0.0 };
                 }
                 let base = r.base;
                 r.x += r.dir * r.force * dt;
                 let moved = (r.x - base) * r.dir;
                 self.push_along(&r.crew.clone(), r.dir, |k| behind(&r, k, r.dir), dt);
-                self.push_along(&r.resist.clone(), -r.dir, |k| behind(&r, k, -r.dir), dt);
+                for (k, &i) in r.resist.clone().iter().enumerate() {
+                    if at_ball.contains(&i) {
+                        self.push_along(&[i], -r.dir, |_| behind(&r, k, -r.dir), dt);
+                    } else {
+                        self.steer(i, behind(&r, k, -r.dir), 0.26);
+                    }
+                }
                 if moved.abs() > width * 1.3 || r.t > 7.0 {
                     let crew_won = moved > 0.0;
                     log::debug!("chat {}: the push-back is won by {}", c.id, if crew_won { "the rollers" } else { "the other side" });
