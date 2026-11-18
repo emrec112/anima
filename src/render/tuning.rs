@@ -163,6 +163,7 @@ tuning! {
     "Roaming", "Weather" {
         carry_keepsake: "Carries its favourite keepsake on its back (share of the time)" = 0.4, 0.0, 1.0, 0.05, 2;
         weather_show: "Weather shown: 0 off, 1 around them, 2 whole screen" = 1.0, 0.0, 2.0, 1.0, 0;
+        weather_fps: "Rain and snow over the whole screen, frames a second" = 30.0, 5.0, 144.0, 1.0, 0;
         jolt_drop: "A tumble knocks the umbrella out of the hand" = 0.7, 0.0, 1.0, 0.05, 2;
         parasol_drag: "Open umbrella on the back slows games (speed share)" = 0.85, 0.3, 1.0, 0.05, 2;
         parasol_hang: "Jumps under an open umbrella last (times)" = 1.8, 1.0, 4.0, 0.1, 1;

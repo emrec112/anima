@@ -925,6 +925,24 @@ pub(super) fn prop_image(kind: i32) -> Option<std::path::PathBuf> {
     s.1.contains(&file).then(|| dir.join(file))
 }
 
+// rain or snow over the whole screen moves on at its own, lower frame rate:
+// the same picture in between, so the screen needn't be redone every frame
+static SHEET_T0: std::sync::LazyLock<std::time::Instant> = std::sync::LazyLock::new(std::time::Instant::now);
+static SHEET_SHOWN: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
+
+/// The weather sheet's frame number and its time (s).
+pub(super) fn sheet_frame() -> (i64, f32) {
+    let fps = crate::render::tuning::get().weather_fps.max(1.0);
+    let step = (SHEET_T0.elapsed().as_secs_f32() * fps).floor();
+    (step as i64, step / fps)
+}
+
+/// True once per new frame of the weather sheet: the whole screen changed.
+pub(super) fn sheet_moved() -> bool {
+    let (step, _) = sheet_frame();
+    SHEET_SHOWN.swap(step, std::sync::atomic::Ordering::Relaxed) != step
+}
+
 impl CharacterOverlay {
     /// Rain or snow over the whole screen, if that's how the weather is shown.
     pub(super) fn weather_sheet(&self) -> Option<i32> {
@@ -1066,6 +1084,9 @@ impl CharacterOverlay {
         c.program.set_f32(gl, "u_opacity", 1.0);
         c.program.set_vec2(gl, "u_hide", 0.0, 0.0);
         for (kind, rect, flip, spin, zoom, image) in props {
+            // the weather sheet keeps to its own frame rate
+            c.program.bind(gl);
+            c.program.set_f32(gl, "u_time", if matches!(kind, 40 | 41) { sheet_frame().1 } else { time });
             // the creature rising out of the ground says how far it's up in its kind
             let (kind, reveal) = if kind >= super::social::FOUND {
                 (kind, 1.0)

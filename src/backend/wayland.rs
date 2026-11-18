@@ -1152,7 +1152,9 @@ impl App {
                             })
                             .filter(|r| r.width > 0 && r.height > 0)
                             .collect();
-                        fo.prev_rects = rects;
+                        // the whole-screen weather redraw isn't carried over: the
+                        // next frame shows the same rain or snow
+                        fo.prev_rects = rects.into_iter().filter(|r| r[2] - r[0] < bw * 2.0).collect();
                         let swapped = match (fo_surf, fo_ctx) {
                             (
                                 glutin::surface::Surface::Egl(s),
