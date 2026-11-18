@@ -95,7 +95,7 @@ impl CharacterOverlay {
         governor::place_at(self.walk_ref(i).ws, self.strip_px(i))
     }
 
-    fn height_of(&self, i: usize) -> f32 {
+    pub(super) fn height_of(&self, i: usize) -> f32 {
         let r = if i == 0 { self.hit_rect } else { self.extras[i - 1].hit_rect };
         (r[3] - r[1]).max(1.0)
     }

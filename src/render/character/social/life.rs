@@ -18,6 +18,7 @@ pub(super) fn stage_limit(stage: Stage) -> f32 {
         Stage::Wrestle => 180.0,
         Stage::Snow => t.snow_longest + 300.0,
         Stage::Hide => t.hide_time + 60.0,
+        Stage::Snowman => 300.0,
         Stage::Play => 900.0,
         _ => t.chat_max,
     }
@@ -105,7 +106,7 @@ pub(super) struct Allows {
 pub(super) fn allows(stage: Stage) -> Allows {
     let talk = matches!(stage, Stage::Notice | Stage::Approach | Stage::Talk | Stage::Stroll | Stage::Part | Stage::Cheer);
     Allows {
-        lean: matches!(stage, Stage::Tug | Stage::Wrestle | Stage::Play | Stage::Snow),
+        lean: matches!(stage, Stage::Tug | Stage::Wrestle | Stage::Play | Stage::Snow | Stage::Snowman),
         // up on a net, a box, a seat or a jetty
         perched: matches!(stage, Stage::Volley | Stage::Gift | Stage::Play | Stage::Fishing),
         game_flags: !talk,

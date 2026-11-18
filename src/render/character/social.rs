@@ -14,6 +14,7 @@ mod life;
 mod play;
 mod hide;
 mod snow;
+mod snowman;
 mod watch;
 
 pub(super) use free::Want;
@@ -109,6 +110,8 @@ enum Stage {
     Snow,
     // one counts, the rest hide behind windows
     Hide,
+    // rolling up a snowman, or putting something on one
+    Snowman,
     // practising alone, or shown how by someone better at it
     Practice,
     Cheer,
@@ -315,7 +318,7 @@ enum Game {
 impl Chat {
     fn new(id: u32, members: Vec<usize>, stage: Stage, timer: f32) -> Self {
         let talker = members[0];
-        Chat { by_hand: false, world: None, watch_left: Vec::new(), watch_stir: f32::NAN, split_due: false, stage_t: 0.0, last_stage: stage, practice: None, encore_due: false, leavers: Vec::new(), offer: None, hold: 0.0, fishing: None, snow: None, hide: None, part_queue: Vec::new(), bribe: None, cheated: None, cheat_t: -1.0, cheater: None, cheat_side: 0.0, cheat_on: false, id, members, stage, timer, talker, turn: 0.0, bob: 0.0, strolls: 0, joined_walking: false, quiet: 0.0, games: 0, played: Vec::new(), watchers: Vec::new(), spots: Vec::new(), base: Vec::new(), offset: 0.0, pull: 0.0, pull_target: 0.0, it: 0, chase: 0, teams: (Vec::new(), Vec::new()), queue: Vec::new(), step: 0, wait: 0.0, scores: Vec::new(), winner: None, rewarded: false, long: None, regroup: false, forced: None, recent: Vec::new(), tag_free: 0.0, tag_turn: 0.0, tug_grab: None, tug_held: 0.0, tug_clicks: 0, cuts: 0, cut_timer: 0.0, all_cheer: false, volley: None, wrestle: None, mood: 0.0, carrot: None, samba_new: Vec::new(), gift: None, play: None }
+        Chat { by_hand: false, world: None, watch_left: Vec::new(), watch_stir: f32::NAN, split_due: false, stage_t: 0.0, last_stage: stage, practice: None, encore_due: false, leavers: Vec::new(), offer: None, hold: 0.0, fishing: None, snow: None, hide: None, build: None, gift_on: None, part_queue: Vec::new(), bribe: None, cheated: None, cheat_t: -1.0, cheater: None, cheat_side: 0.0, cheat_on: false, id, members, stage, timer, talker, turn: 0.0, bob: 0.0, strolls: 0, joined_walking: false, quiet: 0.0, games: 0, played: Vec::new(), watchers: Vec::new(), spots: Vec::new(), base: Vec::new(), offset: 0.0, pull: 0.0, pull_target: 0.0, it: 0, chase: 0, teams: (Vec::new(), Vec::new()), queue: Vec::new(), step: 0, wait: 0.0, scores: Vec::new(), winner: None, rewarded: false, long: None, regroup: false, forced: None, recent: Vec::new(), tag_free: 0.0, tag_turn: 0.0, tug_grab: None, tug_held: 0.0, tug_clicks: 0, cuts: 0, cut_timer: 0.0, all_cheer: false, volley: None, wrestle: None, mood: 0.0, carrot: None, samba_new: Vec::new(), gift: None, play: None }
     }
 }
 
@@ -469,6 +472,8 @@ pub(super) struct Chat {
     fishing: Option<Fishing>,
     snow: Option<snow::Snow>,
     hide: Option<hide::Hide>,
+    build: Option<snowman::Build>,
+    gift_on: Option<snowman::Gift>,
     // samba: still walking over to join the row
     samba_new: Vec<usize>,
     gift: Option<Gift>,
@@ -824,6 +829,15 @@ impl CharacterOverlay {
             wk.bored = if wk.social.is_none() && wk.at_leisure() { wk.bored + dt } else { 0.0 };
             wk.fish_cool = (wk.fish_cool - dt).max(0.0);
             wk.snow_cool = (wk.snow_cool - dt).max(0.0);
+            // flattened: back up with a pop once it's over
+            if wk.flat > 0.0 {
+                wk.flat -= dt;
+                if wk.flat <= 0.0 {
+                    wk.flat = 0.0;
+                    wk.smile = wk.smile.max(1.2);
+                    wk.start_bob(tn().jump_height * 0.35);
+                }
+            }
             wk.train_cool = (wk.train_cool - dt).max(0.0);
             wk.petted = (wk.petted - dt).max(0.0);
             wk.smile = (wk.smile - dt).max(0.0);
@@ -888,7 +902,7 @@ impl CharacterOverlay {
                 }
                 for c in chats.iter_mut() {
                     let full = c.members.len() >= self.group_cap();
-                    if !matches!(c.stage, Stage::Notice | Stage::Stroll | Stage::Concert | Stage::Fishing | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Samba | Stage::Volley | Stage::Snow | Stage::Hide | Stage::Part | Stage::Play | Stage::Practice) && self.overlap_join(c, n, full) {
+                    if !matches!(c.stage, Stage::Notice | Stage::Stroll | Stage::Concert | Stage::Fishing | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Samba | Stage::Volley | Stage::Snow | Stage::Hide | Stage::Snowman | Stage::Part | Stage::Play | Stage::Practice) && self.overlap_join(c, n, full) {
                         continue;
                     }
                     if !full && matches!(c.stage, Stage::Talk | Stage::Stroll) {
@@ -908,6 +922,16 @@ impl CharacterOverlay {
                 }
                 for c in chats.iter_mut().filter(|c| c.stage == Stage::Snow) {
                     self.snow_join(c, n, tn().look_every);
+                }
+                // and snowmen: built, helped with, dressed up
+                if let Some(c) = self.snowman_spark(&chats, n, tn().look_every) {
+                    chats.push(c);
+                }
+                for c in chats.iter_mut().filter(|c| c.stage == Stage::Snowman) {
+                    self.snowman_join(c, n, tn().look_every);
+                }
+                if let Some(c) = self.snowman_dress(n, tn().look_every) {
+                    chats.push(c);
                 }
                 self.park_play(&mut chats, n);
                 self.park_tell_unit(n);
@@ -1130,6 +1154,7 @@ impl CharacterOverlay {
                 Stage::Fishing => "fishing",
                 Stage::Snow => "snowball fight",
                 Stage::Hide => "hide and seek",
+                Stage::Snowman => "building a snowman",
                 Stage::Practice => "training",
                 Stage::Concert => "concert",
                 Stage::Cheer => "celebrating",
@@ -1257,7 +1282,7 @@ impl CharacterOverlay {
         // near the others it carries on, thrown far off it's out
         let by_hand = matches!(
             c.stage,
-            Stage::Contest | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Snow | Stage::Hide | Stage::Concert | Stage::Cheer
+            Stage::Contest | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Snow | Stage::Hide | Stage::Snowman | Stage::Concert | Stage::Cheer
         );
         // a chat isn't broken off either: the others run after whoever's carried away
         let talk = matches!(c.stage, Stage::Approach | Stage::Talk | Stage::Stroll);
@@ -2076,7 +2101,7 @@ impl CharacterOverlay {
             .iter()
             .filter(|c| {
                 c.forced.is_some()
-                    || matches!(c.stage, Stage::Fishing | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Snow | Stage::Hide | Stage::Cheer | Stage::RaceCall | Stage::RaceWait)
+                    || matches!(c.stage, Stage::Fishing | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Gift | Stage::Samba | Stage::Volley | Stage::Snow | Stage::Hide | Stage::Snowman | Stage::Cheer | Stage::RaceCall | Stage::RaceWait)
             })
             .flat_map(|c| c.members.iter().copied())
             .collect();
@@ -6593,6 +6618,7 @@ impl CharacterOverlay {
             Stage::Fishing => self.run_fishing(c, dt),
             Stage::Snow => self.run_snow(c, dt),
             Stage::Hide => self.run_hide(c, dt),
+            Stage::Snowman => self.run_snowman(c, dt),
             Stage::Practice => return self.run_practice(c, dt),
             Stage::Play => return self.run_play(c, dt),
             Stage::Cheer => {

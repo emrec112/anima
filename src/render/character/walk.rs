@@ -154,6 +154,8 @@ pub(super) struct WalkState {
     pub(super) eyes_shut: bool,
     // just had a snowball fight: not another one for a while (s)
     pub(super) snow_cool: f32,
+    // rolled over by a giant snowball: flat as a pancake for this long (s)
+    pub(super) flat: f32,
     pub(super) shake: f32,
     // swung violently while held; triggers item drop when the throw finishes
     pub(super) shaken: bool,

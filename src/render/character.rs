@@ -2303,6 +2303,15 @@ impl CharacterOverlay {
                 }
                 self.walk.x - view
             };
+            // rolled over by a giant snowball: squashed flat, feet still on
+            // the floor, springing back in the last moment of it
+            let flat = (self.walk.flat / 0.25).clamp(0.0, 1.0);
+            let (center_clip, half_clip) = if flat > 0.0 {
+                let (kx, ky) = (1.0 + 0.35 * flat, 1.0 - 0.75 * flat);
+                ([center_clip[0], center_clip[1] - half_clip[1] * (1.0 - ky)], [half_clip[0] * kx, half_clip[1] * ky])
+            } else {
+                (center_clip, half_clip)
+            };
             let air = self.walk.air * half_clip[1];
             self.program
                 .set_vec2(gl, "u_center", center_clip[0] + walk_x, center_clip[1]);

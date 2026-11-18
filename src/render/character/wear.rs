@@ -419,6 +419,29 @@ pub(super) fn found_labels(name: &str) -> Vec<String> {
     shared.3.get(name).map(|ids| ids.iter().filter_map(|id| shared.1.iter().find(|i| &i.id == id).map(|i| i.label.clone())).collect()).unwrap_or_default()
 }
 
+/// Something `name` has but isn't wearing that would sit on a snowman's
+/// head, eyes or neck, at random (`roll` 0..1): its place in the catalog
+/// and where it goes.
+pub(super) fn spare(name: &str, roll: f32) -> Option<(usize, Anchor)> {
+    let shared = wardrobe();
+    let worn = shared.0.get(name);
+    let left: Vec<usize> = (0..shared.1.len())
+        .filter(|&k| {
+            let it = &shared.1[k];
+            matches!(it.anchor, Anchor::Crown | Anchor::Eyes | Anchor::Neck)
+                && it.pair == 0.0
+                && it.id != "sleep_mask"
+                && it.id != "scarf"
+                && owns(&shared.3, name, &it.id)
+                && !worn.is_some_and(|w| w.iter().any(|x| x == &it.id))
+        })
+        .collect();
+    (!left.is_empty()).then(|| {
+        let k = left[(roll * left.len() as f32) as usize % left.len()];
+        (k, shared.1[k].anchor)
+    })
+}
+
 /// A catalog entry by its place: its label, and its picture or drawn kind.
 pub(super) fn catalog_entry(k: usize) -> Option<(String, String, Option<PathBuf>, i32)> {
     let shared = wardrobe();

@@ -64,18 +64,31 @@ tuning! {
     }
     "Games", "Snowball fight" {
         snow_min: "Fewest players (asked for by hand)" = 2.0, 2.0, 12.0, 1.0, 0;
-        snow_start_every: "While it snows, someone starts one within about (s)" = 120.0, 5.0, 3600.0, 5.0, 0;
-        snow_join: "Passers-by join in (per s)" = 0.1, 0.0, 2.0, 0.01, 2;
-        snow_stay_min: "Keeps at it, at least (s)" = 30.0, 5.0, 600.0, 5.0, 0;
-        snow_stay_rand: "Random extra (s)" = 60.0, 0.0, 600.0, 5.0, 0;
-        snow_again: "Won't start another for (s)" = 180.0, 0.0, 3600.0, 10.0, 0;
-        snow_longest: "Winds down after (s)" = 300.0, 30.0, 3600.0, 10.0, 0;
+        snow_start_every: "While it snows, someone starts one within about (s)" = 75.0, 5.0, 3600.0, 5.0, 0;
+        snow_join: "Passers-by join in (per s)" = 0.12, 0.0, 2.0, 0.01, 2;
+        snow_stay_min: "Keeps at it, at least (s)" = 45.0, 5.0, 600.0, 5.0, 0;
+        snow_stay_rand: "Random extra (s)" = 75.0, 0.0, 600.0, 5.0, 0;
+        snow_again: "Won't start another for (s)" = 150.0, 0.0, 3600.0, 10.0, 0;
+        snow_longest: "Winds down after (s)" = 360.0, 30.0, 3600.0, 10.0, 0;
         snow_dodge: "Hops out of the way of a ball (share)" = 0.3, 0.0, 1.0, 0.05, 2;
-        snow_roll_rate: "A few go and roll a big one (per s)" = 0.03, 0.0, 1.0, 0.01, 2;
-        snow_roll_min: "Players needed for that" = 5.0, 3.0, 30.0, 1.0, 0;
-        snow_roll_speed: "Big ball rolls at (px/s)" = 45.0, 5.0, 300.0, 5.0, 0;
-        snow_big: "Big ball grows to (heights)" = 0.9, 0.2, 3.0, 0.05, 2;
+        snow_chase: "Runs after someone instead of throwing from afar (share)" = 0.25, 0.0, 1.0, 0.05, 2;
+        snow_roll_rate: "Someone starts a giant snowball (per s)" = 0.02, 0.0, 1.0, 0.01, 2;
+        snow_roll_min: "Players needed for that" = 2.0, 2.0, 30.0, 1.0, 0;
+        snow_help: "Someone from its side comes to help roll it (per s)" = 0.15, 0.0, 2.0, 0.01, 2;
+        snow_roll_speed: "Giant ball rolls up at (px/s)" = 45.0, 5.0, 300.0, 5.0, 0;
+        snow_big: "Giant ball grows to (heights)" = 1.8, 0.3, 4.0, 0.05, 2;
+        snow_resist: "The other side runs over to push it back (share)" = 0.5, 0.0, 1.0, 0.05, 2;
+        snow_giant_speed: "Sent off, it rolls at (px/s)" = 380.0, 50.0, 2000.0, 10.0, 0;
+        snow_flat: "Flattened for (s)" = 1.4, 0.2, 10.0, 0.1, 1;
+    }
+    "Games", "Snowman" {
+        snowman_every: "While it snows, someone starts one within about (s)" = 200.0, 5.0, 3600.0, 5.0, 0;
+        snowman_most: "Most snowmen on a workspace" = 3.0, 1.0, 20.0, 1.0, 0;
+        snowman_help: "Someone comes to help (per s)" = 0.06, 0.0, 2.0, 0.01, 2;
+        snowman_size: "Bottom ball (heights)" = 0.8, 0.2, 3.0, 0.05, 2;
+        snowman_roll_speed: "Rolled up at (px/s)" = 40.0, 5.0, 300.0, 5.0, 0;
         snowman_stay: "Snowman stays (s)" = 900.0, 10.0, 7200.0, 30.0, 0;
+        snowman_dress_every: "A passer-by puts something on one within about (s)" = 90.0, 5.0, 3600.0, 5.0, 0;
     }
     "Games", "Hide and seek" {
         hide_min: "Fewest players" = 3.0, 2.0, 12.0, 1.0, 0;
