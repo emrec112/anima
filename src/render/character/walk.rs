@@ -143,6 +143,8 @@ pub(super) struct WalkState {
     pub(super) snow_pile: f32,
     // shook its umbrella out of its hand, and how hard it's been swung (s)
     pub(super) lost: Vec<String>,
+    // bringing a friend its dropped thing: not to be taken into anything else
+    pub(super) fetching: bool,
     pub(super) shake: f32,
     // swung violently while held; triggers item drop when the throw finishes
     pub(super) shaken: bool,

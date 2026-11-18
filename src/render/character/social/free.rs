@@ -32,7 +32,7 @@ impl CharacterOverlay {
     /// Belongs to nothing and isn't busy with itself.
     pub(in crate::render::character) fn unbound(&self, i: usize) -> bool {
         let wk = self.walk_ref(i);
-        !wk.fret && wk.sign.is_none() && wk.social.is_none() && wk.race.is_none() && wk.crowd.is_none() && !wk.circle
+        !wk.fret && !wk.fetching && wk.sign.is_none() && wk.social.is_none() && wk.race.is_none() && wk.crowd.is_none() && !wk.circle
     }
 
     /// May `i` be taken into `want` right now?

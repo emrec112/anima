@@ -3041,7 +3041,8 @@ impl CharacterOverlay {
     /// Someone strolling by sees the rods out and joins in beside them.
     fn join_fishing(&mut self, c: &mut Chat, n: usize, every: f32) {
         let Some(f) = c.fishing.as_ref() else { return };
-        if c.members.len() >= tn().fish_most as usize {
+        // nobody new once it's past halfway: it winds down instead of going on and on
+        if c.members.len() >= tn().fish_most as usize || (c.step != 9 && c.timer < tn().fish_time * 0.5) {
             return;
         }
         let ws = self.walk_ref(c.members[0]).ws;

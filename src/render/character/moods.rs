@@ -126,7 +126,7 @@ pub(super) struct Moods {
 
 impl WalkState {
     pub(super) fn can_hold_sign(&self) -> bool {
-        !self.fret && matches!(self.act, Act::Idle | Act::Walk) && self.social.is_none() && self.race.is_none() && self.crowd.is_none() && !self.circle
+        !self.fret && !self.fetching && matches!(self.act, Act::Idle | Act::Walk) && self.social.is_none() && self.race.is_none() && self.crowd.is_none() && !self.circle
     }
 
     pub(super) fn at_leisure(&self) -> bool {
@@ -795,6 +795,11 @@ impl CharacterOverlay {
         let raining = super::weather::now().rain;
         let mut keep = Vec::new();
         let names: Vec<String> = (0..n).map(|i| self.character_name(i)).collect();
+        for i in 0..n {
+            self.walk_of(i).fetching = false;
+        }
+        // one thing at a time each: whoever's fetching already isn't asked again
+        let mut fetchers: Vec<String> = self.moods.loose.iter().filter_map(|l| l.helper_name.clone()).collect();
         for mut l in std::mem::take(&mut self.moods.loose) {
             // find its owner (and helper) again: the team may have changed
             let Some(o) = names.iter().position(|x| x == &l.owner_name) else { continue };
@@ -835,10 +840,12 @@ impl CharacterOverlay {
             let free = matches!(wk.act, Act::Idle | Act::Walk) && wk.social.is_none() && wk.race.is_none();
             let ready = |this: &Self, j: usize| {
                 let w = this.walk_ref(j);
-                matches!(w.act, Act::Idle | Act::Walk) && w.social.is_none() && w.race.is_none() && w.crowd.is_none()
+                // a hop on the way doesn't count as busy
+                matches!(w.act, Act::Idle | Act::Walk | Act::Jump) && w.social.is_none() && w.race.is_none() && w.crowd.is_none() && w.sign.is_none() && w.rest.is_none() && w.trip.is_none()
             };
-            // the owner's busy: a friend at a loose end fetches it and brings it over
-            if l.still > 0.6 && !free {
+            // the owner's busy: a friend at a loose end fetches it and brings it over;
+            // once in the friend's hand it's brought over even if the owner's free by then
+            if l.still > 0.6 && (!free || l.carried) {
                 if l.helper.is_some_and(|h| h >= n || !ready(self, h)) {
                     // the helper got caught up in something: down it goes where it is
                     if let Some(h) = l.helper.filter(|_| l.carried) {
@@ -854,7 +861,7 @@ impl CharacterOverlay {
                     let ws = wk.ws;
                     let x = l.x;
                     l.helper = (0..n)
-                        .filter(|&j| j != o && self.walk_ref(j).ws == ws && ready(self, j) && (self.strip_px(j) - x).abs() < self.view_w * 0.6)
+                        .filter(|&j| j != o && !fetchers.contains(&names[j]) && self.walk_ref(j).ws == ws && ready(self, j) && (self.strip_px(j) - x).abs() < self.view_w * 0.6)
                         .max_by(|&a, &b| {
                             let score = |j: usize| self.bond(o, j).0 * 400.0 - (self.strip_px(j) - x).abs();
                             score(a).total_cmp(&score(b))
@@ -862,6 +869,7 @@ impl CharacterOverlay {
                     if let Some(h) = l.helper {
                         log::debug!("{h} goes to fetch {o}'s {}", l.id);
                         l.helper_name = Some(names[h].clone());
+                        fetchers.push(names[h].clone());
                     }
                 }
                 if let Some(h) = l.helper {
@@ -897,7 +905,10 @@ impl CharacterOverlay {
                     }
                 }
             }
-            if l.still > 0.6 && free {
+            if let Some(h) = l.helper.filter(|&h| h < n) {
+                self.walk_of(h).fetching = true;
+            }
+            if l.still > 0.6 && free && !l.carried {
                 l.helper = None;
                 l.helper_name = None;
                 l.carried = false;

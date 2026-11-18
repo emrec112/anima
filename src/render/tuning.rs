@@ -38,11 +38,11 @@ macro_rules! tuning {
 tuning! {
     "Games", "Fishing" {
         fish_min: "Fewest players" = 2.0, 1.0, 12.0, 1.0, 0;
-        fish_time: "Longest time (s)" = 1500.0, 10.0, 7200.0, 5.0, 0;
+        fish_time: "Longest time (s)" = 300.0, 10.0, 7200.0, 5.0, 0;
         fish_bored: "Bored enough to fish alone after (s)" = 240.0, 5.0, 1800.0, 5.0, 0;
         fish_bored_every: "Then goes fishing within about (s)" = 180.0, 1.0, 1800.0, 5.0, 0;
-        fish_glee: "Anglers have a happy moment while waiting (per s)" = 0.06, 0.0, 1.0, 0.01, 2;
-        fish_join: "Passers-by join in (per s)" = 0.08, 0.0, 2.0, 0.01, 2;
+        fish_glee: "Anglers have a happy moment while waiting (per s)" = 0.03, 0.0, 1.0, 0.01, 2;
+        fish_join: "Passers-by join in (per s)" = 0.03, 0.0, 2.0, 0.01, 2;
         fish_most: "Most fishing together" = 5.0, 1.0, 12.0, 1.0, 0;
         fish_real: "A good catch is a real fish (share)" = 0.75, 0.0, 1.0, 0.05, 2;
         fish_creature: "Of those, a rare sea creature (share)" = 0.15, 0.0, 1.0, 0.05, 2;
@@ -53,9 +53,9 @@ tuning! {
         fish_beast_cool: "Quiet after a scare (s)" = 120.0, 0.0, 300.0, 5.0, 0;
         fish_beast_reach: "Scares anglers within (widths)" = 5.0, 1.0, 30.0, 0.5, 1;
         fish_reel: "Reeling in takes (s)" = 2.5, 0.3, 15.0, 0.1, 1;
-        fish_stay_min: "Stays interested, at least (s)" = 90.0, 10.0, 3600.0, 10.0, 0;
-        fish_stay_rand: "Random extra interest (s)" = 150.0, 0.0, 3600.0, 10.0, 0;
-        fish_catch_keeps: "A good catch keeps it going (s)" = 20.0, 0.0, 600.0, 5.0, 0;
+        fish_stay_min: "Stays interested, at least (s)" = 45.0, 10.0, 3600.0, 10.0, 0;
+        fish_stay_rand: "Random extra interest (s)" = 60.0, 0.0, 3600.0, 10.0, 0;
+        fish_catch_keeps: "A good catch keeps it going (s)" = 5.0, 0.0, 600.0, 5.0, 0;
         fish_lost_cost: "A lost fish or junk costs (s)" = 15.0, 0.0, 300.0, 5.0, 0;
         fish_again: "Won't fish again for (s)" = 300.0, 0.0, 3600.0, 10.0, 0;
         fish_throw_far: "Thrown this far outside the window, gives up (widths)" = 6.0, 1.0, 40.0, 0.5, 1;
