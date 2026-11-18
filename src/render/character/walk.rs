@@ -145,6 +145,8 @@ pub(super) struct WalkState {
     pub(super) lost: Vec<String>,
     // bringing a friend its dropped thing: not to be taken into anything else
     pub(super) fetching: bool,
+    // a short happy face (s): a loser getting up with a smile, no laughing fit
+    pub(super) smile: f32,
     pub(super) shake: f32,
     // swung violently while held; triggers item drop when the throw finishes
     pub(super) shaken: bool,

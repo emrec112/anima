@@ -2412,6 +2412,7 @@ impl CharacterOverlay {
             let happy = !afoot
                 && (matches!(self.walk.act, Act::Jump | Act::Pat | Act::Held | Act::Fall)
                     || self.walk.giggle > 0.0
+                    || self.walk.smile > 0.0
                     || self.walk.petted > 0.0
                     || self.walk.social.is_some_and(|s| s.happy));
             // a change of pose: a quick squash, swapped at the bottom of it

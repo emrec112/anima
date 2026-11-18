@@ -613,6 +613,15 @@ impl WalkState {
         Some((self.x, false, 0.0))
     }
 
+    /// Lost and took a tumble: up with a short smile and one little hop,
+    /// not a laughing fit that sets everyone off.
+    pub(super) fn good_sport(&mut self) {
+        self.smile = 0.8 + self.rand() * 0.5;
+        if grounded(self) {
+            self.start_bob(tn().jump_height * 0.15);
+        }
+    }
+
     /// Flat out or head first: how far round, and how deep.
     fn stuck_pose(&mut self) -> (f32, f32) {
         use std::f32::consts::{FRAC_PI_2, PI};
@@ -802,6 +811,7 @@ impl CharacterOverlay {
             wk.fish_cool = (wk.fish_cool - dt).max(0.0);
             wk.train_cool = (wk.train_cool - dt).max(0.0);
             wk.petted = (wk.petted - dt).max(0.0);
+            wk.smile = (wk.smile - dt).max(0.0);
             wk.dropped = (wk.dropped - dt).max(0.0);
             wk.team = n as f32;
             wk.park_crowd = park_crowd;
@@ -3966,7 +3976,10 @@ impl CharacterOverlay {
                         if wk.act == Act::Planted {
                             wk.act = Act::Idle;
                         }
-                        // the loser gets up quietly, no laughing and hopping about
+                        // the loser gets up with a short smile and one little hop
+                        if wk.social.is_some_and(|r| r.stuck) {
+                            wk.good_sport();
+                        }
                         if let Some(r) = wk.social.as_mut() {
                             r.flying = false;
                             r.stuck = false;
@@ -6022,6 +6035,9 @@ impl CharacterOverlay {
             let tumbled = self.walk_ref(i).social.is_some_and(|r| r.stuck || r.flying);
             // on the losing side of a game with winners: gets up without the laughing hops
             let lost = !c.scores.is_empty() && !c.scores.iter().any(|s| s.0 == i && s.1 > 0.0);
+            if tumbled && lost {
+                self.walk_of(i).good_sport();
+            }
             if tumbled && !lost {
                 let wk = self.walk_of(i);
                 let secs = tn().laugh_time * (0.8 + wk.rand() * 0.7);
