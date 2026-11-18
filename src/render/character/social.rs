@@ -6491,14 +6491,20 @@ impl CharacterOverlay {
                     let roll = wk.rand();
                     let Some(r) = wk.social.as_mut() else { continue };
                     r.hop_cool = (r.hop_cool - dt).max(0.0);
-                    r.goal_px = cursor + (k as f32 - (count - 1.0) * 0.5) * 30.0;
+                    // spread out on the way, but right under the cursor once close
+                    let near = (x - cursor).abs() < tn().cursor_reach * 3.0;
+                    r.goal_px = if near { cursor } else { cursor + (k as f32 - (count - 1.0) * 0.5) * 30.0 };
                     r.speed = tn().cursor_speed;
                     r.moving = true;
                     r.face_left = cursor < x;
                     let jump = on_ground && r.hop_cool <= 0.0 && (x - cursor).abs() < tn().cursor_reach && reach > 0.0;
                     if jump {
                         r.hop_cool = 0.6 + roll * 0.8;
-                        wk.start_jump(reach.max(tn().jump_height));
+                        // it keeps after the cursor in the air
+                        r.leaping = true;
+                        // a bit higher than the head just touching it, so the
+                        // hands get there on the way up, not only at the very top
+                        wk.start_jump((reach + 0.35).max(tn().jump_height));
                         wk.catch_jump = true;
                     }
                 }
