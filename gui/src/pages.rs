@@ -226,7 +226,7 @@ fn play_now(ui: &Rc<Ui>) -> gtk::Widget {
         .column_spacing(10)
         .homogeneous(true)
         .build();
-    let games: [(&str, &str, &'static str, &'static str); 13] = [
+    let games: [(&str, &str, &'static str, &'static str); 14] = [
         ("Jumping contest", "go-up-symbolic", "contest", "game_min"),
         ("Cursor game", "input-mouse-symbolic", "cursor", "game_min"),
         ("Long jump", "go-next-symbolic", "long", "long_min"),
@@ -245,6 +245,7 @@ fn play_now(ui: &Rc<Ui>) -> gtk::Widget {
         ("Gift", "emblem-favorite-symbolic", "gift", "gift_min"),
         ("Fishing", "weather-showers-symbolic", "fishing", "fish_min"),
         ("Snowball fight", "weather-snow-symbolic", "snow", "snow_min"),
+        ("Hide and seek", "edit-find-symbolic", "hide", "hide_min"),
     ];
     for (label, icon, name, min_key) in games {
         let inner = gtk::Box::builder()

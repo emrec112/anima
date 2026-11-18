@@ -217,6 +217,7 @@ const CARROT_FS: &str = r#"#version 300 es
 precision highp float;
 in vec2 v_pos;
 in vec2 v_sclip;
+uniform vec2 u_hide;
 out vec4 fragColor;
 uniform int u_kind;
 uniform int u_flip;
@@ -761,6 +762,7 @@ vec4 snowpuff(vec2 p) {
 //SLIDE_TUBE
 
 void main() {
+    if (u_hide.y != 0.0 && (v_sclip.x - u_hide.x) * u_hide.y > 0.0) discard;
     vec2 p = v_pos;
     if (u_flip == 1) p.x = -p.x;
     vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 43 ? snowball(p) : u_kind == 44 ? snowman(p) : u_kind == 45 ? snowpuff(p) : u_kind == 100 ? picture(p) : carrot(p);
@@ -961,6 +963,7 @@ impl CharacterOverlay {
             }
         }
         let pose = self.pose;
+        let hide = self.hide_clip(self.surface[0]);
         let Some(c) = self.carrot_gl.as_mut() else { return };
         c.program.bind(gl);
         super::bind_slide_uniforms(gl, &mut c.program, pose.size, slide);
@@ -978,6 +981,7 @@ impl CharacterOverlay {
         c.program.set_f32(gl, "c_xscale", pose.xscale);
         c.program.set_f32(gl, "u_reveal", 1.0);
         c.program.set_f32(gl, "u_opacity", pose.opacity);
+        c.program.set_vec2(gl, "u_hide", hide[0], hide[1]);
         for w in worn.iter().filter(|w| w.behind == behind) {
             // a picture: its own, or the one in the props folder for this kind
             let picture = w.image.clone().or_else(|| prop_image(w.kind));
@@ -1060,6 +1064,7 @@ impl CharacterOverlay {
         c.program.set_f32(gl, "u_saspect", w / h);
         c.program.set_f32(gl, "c_aspect", w / h);
         c.program.set_f32(gl, "u_opacity", 1.0);
+        c.program.set_vec2(gl, "u_hide", 0.0, 0.0);
         for (kind, rect, flip, spin, zoom, image) in props {
             // the creature rising out of the ground says how far it's up in its kind
             let (kind, reveal) = if kind >= super::social::FOUND {

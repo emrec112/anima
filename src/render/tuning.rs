@@ -74,6 +74,14 @@ tuning! {
         snow_big: "Big ball grows to (heights)" = 0.9, 0.2, 3.0, 0.05, 2;
         snowman_stay: "Snowman stays (s)" = 900.0, 10.0, 7200.0, 30.0, 0;
     }
+    "Games", "Hide and seek" {
+        hide_min: "Fewest players" = 3.0, 2.0, 12.0, 1.0, 0;
+        hide_time: "Longest time (s)" = 90.0, 15.0, 600.0, 5.0, 0;
+        hide_count: "Counts for (s)" = 6.0, 1.0, 60.0, 0.5, 1;
+        hide_seek_speed: "Seeker walks at" = 0.13, 0.02, 1.0, 0.01, 2;
+        hide_miss: "Seeker looks right past them (share)" = 0.15, 0.0, 1.0, 0.05, 2;
+        hide_dash: "Makes a dash for the start (per s)" = 0.06, 0.0, 2.0, 0.01, 2;
+    }
     "Games", "Getting better" {
         skill_rate: "Learning per game played" = 0.1, 0.0, 1.0, 0.01, 2;
         skill_teach: "Learning from a better friend" = 0.15, 0.0, 1.0, 0.01, 2;

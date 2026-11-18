@@ -147,6 +147,11 @@ pub(super) struct WalkState {
     pub(super) fetching: bool,
     // a short happy face (s): a loser getting up with a smile, no laughing fit
     pub(super) smile: f32,
+    // hiding behind a window: strip x of its edge, and which side of it is
+    // covered (-1 left, 1 right); nothing of it is drawn there
+    pub(super) hide: Option<(f32, f32)>,
+    // counting with its eyes covered (hide and seek)
+    pub(super) eyes_shut: bool,
     pub(super) shake: f32,
     // swung violently while held; triggers item drop when the throw finishes
     pub(super) shaken: bool,

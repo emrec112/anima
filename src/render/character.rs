@@ -399,6 +399,9 @@ const CHAR_FS: &str = r#"#version 300 es
 precision highp float;
 in vec2 v_uv;
 in vec2 v_sclip;
+// hiding behind a window: x of its edge (scene clip), and which side of it
+// is covered (-1 left, 1 right, 0 none)
+uniform vec2 u_hide;
 
 uniform sampler2D u_tex;
 uniform float u_sleep;   // asleep: the mask on (0..1)
@@ -982,6 +985,7 @@ vec4 render_neko(vec2 uv, int style) {
 //SLIDE_TUBE
 
 void main() {
+    if (u_hide.y != 0.0 && (v_sclip.x - u_hide.x) * u_hide.y > 0.0) discard;
     vec4 c;
     if (u_mode == 0) {
         vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
@@ -1312,6 +1316,15 @@ pub(super) fn bind_slide_uniforms(
 }
 
 impl CharacterOverlay {
+    /// `walk.hide` as the shaders take it: the edge in scene clip x, and the
+    /// covered side. `w`: the scene's width (px).
+    pub(super) fn hide_clip(&self, w: f32) -> [f32; 2] {
+        match self.walk.hide {
+            Some((x, side)) => [x * 2.0 / w.max(1.0) - self.own_view[0] - 1.0, side],
+            None => [0.0, 0.0],
+        }
+    }
+
     pub fn new(gl: &glow::Context, config: CharacterConfig, width: i32, height: i32) -> Result<Self> {
         super::tuning::set(config.tuning);
         Self::new_actor(gl, config, width, height, 0)
@@ -2345,6 +2358,8 @@ impl CharacterOverlay {
             self.program.set_f32(gl, "u_bounce", self.smooth_bounce + hop);
             self.program.set_f32(gl, "u_rot", self.walk.rot);
             self.program.set_f32(gl, "u_sink", self.walk.sink * half_clip[1]);
+            let hide = self.hide_clip(w);
+            self.program.set_vec2(gl, "u_hide", hide[0], hide[1]);
             // how the sprite is bent and lifted this frame, so things worn or held
             // can follow any point of it exactly (see `shift_at`)
             self.pose = SpritePose {
@@ -2443,7 +2458,7 @@ impl CharacterOverlay {
                 _ => self.sprite_tex.map(|(t, _, _)| t).unwrap_or(self.dummy_tex),
             };
             // asleep in the calm pose: the mask goes on, slowly
-            let asleep = !self.drawn_happy && self.walk.rest.is_some_and(|r| r.kind == moods::RestKind::Sleep) && self.walk.act == Act::Rest;
+            let asleep = (!self.drawn_happy && self.walk.rest.is_some_and(|r| r.kind == moods::RestKind::Sleep) && self.walk.act == Act::Rest) || self.walk.eyes_shut;
             let goal = if asleep && self.eyes.is_some() { 1.0 } else { 0.0 };
             self.lids += (goal - self.lids) * (dt * 3.0).min(1.0);
             let lids = if self.lids < 0.02 { 0.0 } else { self.lids };
