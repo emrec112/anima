@@ -37,13 +37,32 @@ impl CharacterOverlay {
             }
             return;
         }
+        // something happened (a point, someone sent flying): the watchers react
+        let stir = self.game_stir(c);
+        let event = !c.watch_stir.is_nan() && (stir - c.watch_stir).abs() > 1e-3;
+        c.watch_stir = stir;
+        let focus = self.game_focus(c);
         for &w in &c.watchers.clone() {
-            // wrestling turns its watchers to the duel itself
-            if !fishing && c.stage != Stage::Wrestle && Some(w) != c.cheater && self.arrived(w) {
-                self.face(w, c.talker);
-                if self.walk.rand() < 0.03 {
-                    self.walk_of(w).start_bob(tn().jump_height * 0.1);
+            if fishing || Some(w) == c.cheater || !self.arrived(w) {
+                continue;
+            }
+            // eyes on where it's happening (wrestling sees to its own)
+            if c.stage != Stage::Wrestle {
+                let left = focus < self.strip_px(w);
+                if let Some(r) = self.walk_of(w).social.as_mut() {
+                    r.face_left = left;
                 }
+            }
+            let wk = self.walk_of(w);
+            if event && wk.rand() < 0.7 {
+                wk.smile = wk.smile.max(1.0 + wk.rand() * 0.6);
+                wk.start_bob(tn().jump_height * 0.2);
+            } else if wk.rand() < 0.03 {
+                // now and then caught up in it anyway
+                if wk.rand() < 0.4 {
+                    wk.smile = wk.smile.max(0.8);
+                }
+                wk.start_bob(tn().jump_height * 0.1);
             }
         }
         // nobody new once the group would be too big anyway
@@ -81,6 +100,37 @@ impl CharacterOverlay {
         self.go(i, goal, 0.18);
         self.match_park_y(i, &c.members);
     }
+    /// Where the game's going on: the ball, whoever's "it", else the middle of the players.
+    fn game_focus(&self, c: &Chat) -> f32 {
+        if let Some(v) = c.volley.as_ref() {
+            return self.strip_px(v.ball);
+        }
+        if c.stage == Stage::Tag && c.members.contains(&c.it) {
+            return self.strip_px(c.it);
+        }
+        c.members.iter().map(|&i| self.strip_px(i)).sum::<f32>() / c.members.len().max(1) as f32
+    }
+
+    /// A number that changes whenever something worth a cheer happens.
+    fn game_stir(&self, c: &Chat) -> f32 {
+        let scores: f32 = c.scores.iter().map(|s| s.1).sum();
+        let points = c.volley.as_ref().map_or(0.0, |v| (v.score[0] + v.score[1]) as f32);
+        let flying = c.members.iter().filter(|&&i| self.walk_ref(i).social.is_some_and(|s| s.flying)).count() as f32;
+        scores + points * 10.0 + flying * 100.0
+    }
+
+    /// Game over: those watching cheer it, a hop and a smile each.
+    pub(super) fn watchers_cheer(&mut self, c: &Chat) {
+        for &w in &c.watchers {
+            if Some(w) == c.cheater {
+                continue;
+            }
+            let wk = self.walk_of(w);
+            wk.smile = wk.smile.max(1.2 + wk.rand() * 0.6);
+            wk.start_bob(tn().jump_height * 0.3);
+        }
+    }
+
     /// The game's over: some of those watching come in, the rest move on.
     pub(super) fn take_in_watchers(&mut self, c: &mut Chat) {
         for i in std::mem::take(&mut c.watchers) {

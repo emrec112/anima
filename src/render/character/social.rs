@@ -315,7 +315,7 @@ enum Game {
 impl Chat {
     fn new(id: u32, members: Vec<usize>, stage: Stage, timer: f32) -> Self {
         let talker = members[0];
-        Chat { by_hand: false, world: None, watch_left: Vec::new(), stage_t: 0.0, last_stage: stage, practice: None, encore_due: false, leavers: Vec::new(), offer: None, hold: 0.0, fishing: None, snow: None, hide: None, part_queue: Vec::new(), bribe: None, cheated: None, cheat_t: -1.0, cheater: None, cheat_side: 0.0, cheat_on: false, id, members, stage, timer, talker, turn: 0.0, bob: 0.0, strolls: 0, joined_walking: false, quiet: 0.0, games: 0, played: Vec::new(), watchers: Vec::new(), spots: Vec::new(), base: Vec::new(), offset: 0.0, pull: 0.0, pull_target: 0.0, it: 0, chase: 0, teams: (Vec::new(), Vec::new()), queue: Vec::new(), step: 0, wait: 0.0, scores: Vec::new(), winner: None, rewarded: false, long: None, regroup: false, forced: None, recent: Vec::new(), tag_free: 0.0, tag_turn: 0.0, tug_grab: None, tug_held: 0.0, tug_clicks: 0, cuts: 0, cut_timer: 0.0, all_cheer: false, volley: None, wrestle: None, mood: 0.0, carrot: None, samba_new: Vec::new(), gift: None, play: None }
+        Chat { by_hand: false, world: None, watch_left: Vec::new(), watch_stir: f32::NAN, split_due: false, stage_t: 0.0, last_stage: stage, practice: None, encore_due: false, leavers: Vec::new(), offer: None, hold: 0.0, fishing: None, snow: None, hide: None, part_queue: Vec::new(), bribe: None, cheated: None, cheat_t: -1.0, cheater: None, cheat_side: 0.0, cheat_on: false, id, members, stage, timer, talker, turn: 0.0, bob: 0.0, strolls: 0, joined_walking: false, quiet: 0.0, games: 0, played: Vec::new(), watchers: Vec::new(), spots: Vec::new(), base: Vec::new(), offset: 0.0, pull: 0.0, pull_target: 0.0, it: 0, chase: 0, teams: (Vec::new(), Vec::new()), queue: Vec::new(), step: 0, wait: 0.0, scores: Vec::new(), winner: None, rewarded: false, long: None, regroup: false, forced: None, recent: Vec::new(), tag_free: 0.0, tag_turn: 0.0, tug_grab: None, tug_held: 0.0, tug_clicks: 0, cuts: 0, cut_timer: 0.0, all_cheer: false, volley: None, wrestle: None, mood: 0.0, carrot: None, samba_new: Vec::new(), gift: None, play: None }
     }
 }
 
@@ -396,6 +396,10 @@ pub(super) struct Chat {
     watchers: Vec<usize>,
     // and how much longer each of them will stay
     watch_left: Vec<(usize, f32)>,
+    // what the watchers last saw of the game (scores, who's flying): a change is something to cheer
+    watch_stir: f32,
+    // a game just ended: split up only once they've all come back together
+    split_due: bool,
     // the other games: places, where each one started, how far the rope has
     // moved, who's "it" (tag), the two sides of the rope
     spots: Vec<f32>,
@@ -5966,6 +5970,12 @@ impl CharacterOverlay {
         Some(choices[(roll.clamp(0.0, 0.999999) * choices.len() as f32) as usize % choices.len()])
     }
 
+    /// Everyone sharing the best score: the whole winning team, or whoever tied.
+    fn co_winners(c: &Chat) -> Vec<usize> {
+        let Some(best) = c.scores.iter().filter(|s| s.1 > 0.0).map(|s| s.1).reduce(f32::max) else { return Vec::new() };
+        c.scores.iter().filter(|s| s.1 >= best - 1e-4).map(|s| s.0).collect()
+    }
+
     fn pick_top_winner(members: &[usize], scores: &[(usize, f32)], roll: f32, has_unfound: impl Fn(usize) -> bool) -> Option<usize> {
         let best = scores.iter().filter(|s| s.1 > 0.0 && members.contains(&s.0)).map(|s| s.1).reduce(f32::max)?;
         let tied: Vec<usize> = scores
@@ -5992,13 +6002,14 @@ impl CharacterOverlay {
         log::info!("accessory reward: {name} won {label} ({id})");
         let r = if who == 0 { self.hit_rect } else if let Some(e) = self.extras.get(who - 1) { e.hit_rect } else { [0.0; 4] };
         let x = self.strip_px(who);
-        self.moods.effects.push((FOUND + k as i32, who, x, r[1], 0.0, 4.5));
+        // shown off for a moment: half as long as it used to be
+        self.moods.effects.push((FOUND + k as i32, who, x, r[1], 0.0, 2.5));
         self.confetti(who);
         let wk = self.walk_of(who);
         if grounded(wk) {
             wk.start_jump(tn().jump_height * 1.4);
         }
-        let secs = tn().laugh_time * 1.5;
+        let secs = tn().laugh_time * 0.75;
         wk.laugh(secs);
         if let Some(s) = wk.social.as_mut() {
             s.happy = true;
@@ -6051,6 +6062,7 @@ impl CharacterOverlay {
             let members = c.members.clone();
             self.practice(&members, game);
         }
+        self.watchers_cheer(c);
         for &i in &c.members.clone() {
             // stop here: the game's last goals mean nothing any more, and who
             // looks at whom is worked out from where everyone stands
@@ -6105,6 +6117,14 @@ impl CharacterOverlay {
             if let Some(r) = self.walk_of(w).social.as_mut() {
                 r.happy = true;
             }
+            // the others: a sporting smile, then they leave the cheering to the winners
+            let winners = Self::co_winners(c);
+            for &i in &c.members.clone() {
+                if !winners.contains(&i) {
+                    let wk = self.walk_of(i);
+                    wk.smile = wk.smile.max(0.8);
+                }
+            }
             c.timer = tn().cheer_time;
             c.bob = 0.0;
             c.stage = Stage::Cheer;
@@ -6130,7 +6150,17 @@ impl CharacterOverlay {
             c.regroup = true;
         } else {
             self.take_in_watchers(c);
-            self.maybe_split(c);
+            // spread about (thrown, run off): back together first, and any
+            // splitting up after that, by where they stand then
+            let xs: Vec<f32> = c.members.iter().map(|&i| self.strip_px(i)).collect();
+            let size = self.row_size(c);
+            let spread = xs.iter().copied().fold(f32::MIN, f32::max) - xs.iter().copied().fold(f32::MAX, f32::min);
+            if spread > (c.members.len() as f32 - 1.0) * size * 0.72 + size * 3.0 {
+                c.regroup = true;
+                c.split_due = true;
+            } else {
+                self.maybe_split(c);
+            }
         }
         if std::mem::take(&mut c.regroup) {
             self.arrange(c);
@@ -6365,6 +6395,9 @@ impl CharacterOverlay {
                         self.start_game(c, game);
                         return true;
                     }
+                    if std::mem::take(&mut c.split_due) {
+                        self.maybe_split(c);
+                    }
                     // some are just a quick hello
                     let length = if c.members.len() == 2 && self.walk.rand() < tn().short_talk_chance {
                         tn().short_talk_min + self.walk.rand() * tn().short_talk_rand
@@ -6577,11 +6610,11 @@ impl CharacterOverlay {
                     if grounded(wk) {
                         wk.start_jump(tn().jump_height * 0.7);
                     }
-                    // the others cheer along, one little bob at a time
+                    // the rest of the winning side cheer along, one little bob at a time
                     c.bob -= dt;
                     if c.bob <= 0.0 {
                         c.bob = 0.3 + self.walk.rand() * 0.4;
-                        let others: Vec<usize> = c.members.iter().copied().filter(|&i| i != w).collect();
+                        let others: Vec<usize> = Self::co_winners(c).into_iter().filter(|&i| i != w && c.members.contains(&i)).collect();
                         if !others.is_empty() {
                             let i = others[(self.walk.rand() * others.len() as f32) as usize % others.len()];
                             let wk = self.walk_of(i);
