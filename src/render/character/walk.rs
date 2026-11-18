@@ -152,6 +152,8 @@ pub(super) struct WalkState {
     pub(super) hide: Option<(f32, f32)>,
     // counting with its eyes covered (hide and seek)
     pub(super) eyes_shut: bool,
+    // just had a snowball fight: not another one for a while (s)
+    pub(super) snow_cool: f32,
     pub(super) shake: f32,
     // swung violently while held; triggers item drop when the throw finishes
     pub(super) shaken: bool,

@@ -16,7 +16,7 @@ pub(super) fn stage_limit(stage: Stage) -> f32 {
         Stage::RaceWait | Stage::Concert => 600.0,
         Stage::Fishing => t.fish_time + 120.0,
         Stage::Wrestle => 180.0,
-        Stage::Snow => t.snow_time_min + t.snow_time_rand + 120.0,
+        Stage::Snow => t.snow_longest + 300.0,
         Stage::Hide => t.hide_time + 60.0,
         Stage::Play => 900.0,
         _ => t.chat_max,

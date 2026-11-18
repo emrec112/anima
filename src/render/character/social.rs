@@ -823,6 +823,7 @@ impl CharacterOverlay {
             // nothing to do and nobody to do it with: getting bored
             wk.bored = if wk.social.is_none() && wk.at_leisure() { wk.bored + dt } else { 0.0 };
             wk.fish_cool = (wk.fish_cool - dt).max(0.0);
+            wk.snow_cool = (wk.snow_cool - dt).max(0.0);
             wk.train_cool = (wk.train_cool - dt).max(0.0);
             wk.petted = (wk.petted - dt).max(0.0);
             wk.smile = (wk.smile - dt).max(0.0);
@@ -882,7 +883,7 @@ impl CharacterOverlay {
         if self.social_tick <= 0.0 {
             self.social_tick = tn().look_every;
             if self.race.is_none() && self.social_age >= tn().warm_alone && !self.moods.fretting && !self.spaces.fs_on {
-                for c in chats.iter_mut().filter(|c| matches!(c.stage, Stage::Fishing | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Volley | Stage::Snow | Stage::Cheer)) {
+                for c in chats.iter_mut().filter(|c| matches!(c.stage, Stage::Fishing | Stage::Contest | Stage::Cursor | Stage::Long | Stage::Domino | Stage::Tug | Stage::Wrestle | Stage::Tag | Stage::Carrot | Stage::Volley | Stage::Cheer)) {
                     self.try_watch(c, n);
                 }
                 for c in chats.iter_mut() {
@@ -900,6 +901,13 @@ impl CharacterOverlay {
                 self.seek_company(n, tn().look_every);
                 if let Some(c) = self.bored_fishing(n, tn().look_every) {
                     chats.push(c);
+                }
+                // snowing: a snowball fight starts up by itself, and others join in
+                if let Some(c) = self.snow_spark(&chats, n, tn().look_every) {
+                    chats.push(c);
+                }
+                for c in chats.iter_mut().filter(|c| c.stage == Stage::Snow) {
+                    self.snow_join(c, n, tn().look_every);
                 }
                 self.park_play(&mut chats, n);
                 self.park_tell_unit(n);
@@ -1805,12 +1813,10 @@ impl CharacterOverlay {
             (Game::Samba, t.samba_min as usize),
             (Game::Volley, t.volley_min as usize),
             (Game::Fishing, t.fish_min as usize),
-            (Game::Snow, t.snow_min as usize),
             (Game::Hide, t.hide_min as usize),
         ]
         .iter()
-        // snowballs only while it's snowing
-        .filter(|g| len >= g.1 && !played.contains(&g.0) && (g.0 != Game::Snow || super::weather::now().snow))
+        .filter(|g| len >= g.1 && !played.contains(&g.0))
         .map(|g| {
             // samba isn't for a handful: the more there are the likelier
             let weight = if g.0 == Game::Samba {
@@ -1818,7 +1824,7 @@ impl CharacterOverlay {
                 t.samba_weight_small + (t.samba_weight_big - t.samba_weight_small) * k
             } else {
                 let base = (1.0 + (len - g.1) as f32).powf(-t.game_fit);
-                if g.0 == Game::Volley { base * t.volley_weight } else if g.0 == Game::Snow { base * t.snow_weight } else { base }
+                if g.0 == Game::Volley { base * t.volley_weight } else { base }
             };
             // rivals would rather settle it
             let settles = matches!(g.0, Game::Contest | Game::Tug | Game::Wrestle | Game::Volley | Game::Carrot);

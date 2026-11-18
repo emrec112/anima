@@ -63,13 +63,16 @@ tuning! {
         fish_wait_rand: "Random extra wait (s)" = 28.0, 0.0, 180.0, 0.5, 1;
     }
     "Games", "Snowball fight" {
-        snow_min: "Fewest players" = 4.0, 2.0, 12.0, 1.0, 0;
-        snow_weight: "Picked this much more while it snows" = 3.0, 0.0, 20.0, 0.5, 1;
-        snow_time_min: "Longest time (s)" = 45.0, 10.0, 600.0, 5.0, 0;
-        snow_time_rand: "Random extra (s)" = 30.0, 0.0, 600.0, 5.0, 0;
+        snow_min: "Fewest players (asked for by hand)" = 2.0, 2.0, 12.0, 1.0, 0;
+        snow_start_every: "While it snows, someone starts one within about (s)" = 120.0, 5.0, 3600.0, 5.0, 0;
+        snow_join: "Passers-by join in (per s)" = 0.1, 0.0, 2.0, 0.01, 2;
+        snow_stay_min: "Keeps at it, at least (s)" = 30.0, 5.0, 600.0, 5.0, 0;
+        snow_stay_rand: "Random extra (s)" = 60.0, 0.0, 600.0, 5.0, 0;
+        snow_again: "Won't start another for (s)" = 180.0, 0.0, 3600.0, 10.0, 0;
+        snow_longest: "Winds down after (s)" = 300.0, 30.0, 3600.0, 10.0, 0;
         snow_dodge: "Hops out of the way of a ball (share)" = 0.3, 0.0, 1.0, 0.05, 2;
-        snow_roll: "A few roll a big one (share of games)" = 0.6, 0.0, 1.0, 0.05, 2;
-        snow_roll_min: "Players needed for that" = 5.0, 3.0, 12.0, 1.0, 0;
+        snow_roll_rate: "A few go and roll a big one (per s)" = 0.03, 0.0, 1.0, 0.01, 2;
+        snow_roll_min: "Players needed for that" = 5.0, 3.0, 30.0, 1.0, 0;
         snow_roll_speed: "Big ball rolls at (px/s)" = 45.0, 5.0, 300.0, 5.0, 0;
         snow_big: "Big ball grows to (heights)" = 0.9, 0.2, 3.0, 0.05, 2;
         snowman_stay: "Snowman stays (s)" = 900.0, 10.0, 7200.0, 30.0, 0;
