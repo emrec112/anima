@@ -280,6 +280,8 @@ struct Wrestle {
     glee: Vec<(usize, f32)>,
     // the last bout's winner and how long it's still celebrating (s)
     winner: Option<usize>,
+    // and who it threw out: in no mood for cheering for a while
+    loser: Option<usize>,
     party: f32,
     // phase 4: which sides are still talking over who goes next
     decide: [bool; 2],
@@ -3456,6 +3458,10 @@ impl CharacterOverlay {
                             r.lean = 0.0;
                         }
                         self.fling(i, dir, distance, time);
+                        // the rope snapped on everyone: that's funny, not a loss
+                        if let Some(r) = self.walk_of(i).social.as_mut() {
+                            r.happy = true;
+                        }
                     }
                     c.scores.clear();
                     c.wait = 1.6;
@@ -3583,6 +3589,7 @@ impl CharacterOverlay {
             cheer_t: 0.3,
             glee: Vec::new(),
             winner: None,
+            loser: None,
             party: 0.0,
             decide: [false; 2],
             arena_y,
@@ -3734,11 +3741,11 @@ impl CharacterOverlay {
         // now and then one of them hops and cheers for a moment
         w.cheer_t -= dt;
         if w.cheer_t <= 0.0 {
-            w.cheer_t = 0.45 + self.walk.rand() * 0.35;
+            w.cheer_t = 0.8 + self.walk.rand() * 0.6;
             let fans: Vec<usize> = watching
                 .iter()
                 .copied()
-                .filter(|&i| !w.glee.iter().any(|g| g.0 == i) && self.walk_ref(i).social.is_some_and(|r| !r.moving && !r.flying && !r.stuck))
+                .filter(|&i| Some(i) != w.loser && !w.glee.iter().any(|g| g.0 == i) && self.walk_ref(i).social.is_some_and(|r| !r.moving && !r.flying && !r.stuck))
                 .collect();
             if !fans.is_empty() {
                 let fan = fans[(self.walk.rand() * fans.len() as f32) as usize % fans.len()];
@@ -3860,6 +3867,7 @@ impl CharacterOverlay {
                         wwk.start_bob(tn().jump_height * 0.45);
                     }
                     w.winner = Some(winner_f);
+                    w.loser = Some(loser);
                     w.party = 1.6 + self.walk.rand() * 0.8;
                     // the side that lost one picks who's next
                     w.decide = [false; 2];
@@ -3933,9 +3941,12 @@ impl CharacterOverlay {
                 if !airborne {
                     w.t -= dt;
                 }
-                // the winner's still celebrating: hops about, happy
+                // the winner's still celebrating: hops about, happy (the
+                // time only runs once the loser is down)
                 if w.party > 0.0 {
-                    w.party -= dt;
+                    if !airborne {
+                        w.party -= dt;
+                    }
                     if let Some(v) = w.winner {
                         let wk = self.walk_of(v);
                         if grounded(wk) && wk.rand() < dt * 3.0 {
@@ -3955,9 +3966,7 @@ impl CharacterOverlay {
                         if wk.act == Act::Planted {
                             wk.act = Act::Idle;
                         }
-                        if wk.social.is_some_and(|r| r.stuck) {
-                            wk.laugh(0.9);
-                        }
+                        // the loser gets up quietly, no laughing and hopping about
                         if let Some(r) = wk.social.as_mut() {
                             r.flying = false;
                             r.stuck = false;
@@ -3975,7 +3984,7 @@ impl CharacterOverlay {
                     // the side that lost one talks over who goes next; with
                     // nobody to talk to, the last one just steps up
                     let left = (0..=1).filter(|&s| w.decide[s]).map(|s| w.teams[s].len()).max().unwrap_or(0);
-                    w.t = if left > 1 { 1.0 + self.walk.rand() * 1.0 } else { 0.5 };
+                    w.t = if left > 1 { 1.5 + self.walk.rand() * 1.0 } else { 1.0 };
                     w.phase = 4;
                 }
             }
@@ -4268,7 +4277,7 @@ impl CharacterOverlay {
             let scorer = 1 - side;
             v.score[scorer] += 1;
             v.server = scorer;
-            v.rest = 1.0;
+            v.rest = 1.8;
             v.rally = 0;
             v.fumbled = false;
             v.runner = None;
@@ -5646,6 +5655,9 @@ impl CharacterOverlay {
         let distance = (tn().long_dist_min + wk.rand() * tn().long_dist_rand) * knack;
         let time = tn().long_air_min + wk.rand() * tn().long_air_rand;
         self.fling(i, dir, distance, time);
+        if let Some(r) = self.walk_of(i).social.as_mut() {
+            r.happy = true;
+        }
     }
 
     /// Through the air, tumbling, to end up planted in the ground.
@@ -5664,7 +5676,8 @@ impl CharacterOverlay {
             r.flying = true;
             r.jumped = true;
             r.launch_px = from;
-            r.happy = true;
+            // a loser thrown out isn't pleased about it; who flies for fun says so itself
+            r.happy = false;
             r.spin = spin;
             r.moving = false;
             r.bump_cool = 0.2;
@@ -6007,7 +6020,9 @@ impl CharacterOverlay {
             let here = self.strip_px(i);
             // went flying or got stuck in the ground: laughs it off first
             let tumbled = self.walk_ref(i).social.is_some_and(|r| r.stuck || r.flying);
-            if tumbled {
+            // on the losing side of a game with winners: gets up without the laughing hops
+            let lost = !c.scores.is_empty() && !c.scores.iter().any(|s| s.0 == i && s.1 > 0.0);
+            if tumbled && !lost {
                 let wk = self.walk_of(i);
                 let secs = tn().laugh_time * (0.8 + wk.rand() * 0.7);
                 wk.laugh(secs);
