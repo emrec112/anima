@@ -278,6 +278,11 @@ struct Wrestle {
     cheer_t: f32,
     // a fan's happy moment and how long it has left (s)
     glee: Vec<(usize, f32)>,
+    // the last bout's winner and how long it's still celebrating (s)
+    winner: Option<usize>,
+    party: f32,
+    // phase 4: which sides are still talking over who goes next
+    decide: [bool; 2],
     arena_y: f32,
 }
 
@@ -3577,6 +3582,9 @@ impl CharacterOverlay {
             offset: 0.0,
             cheer_t: 0.3,
             glee: Vec::new(),
+            winner: None,
+            party: 0.0,
+            decide: [false; 2],
             arena_y,
         };
         self.wrestle_benches(&w, None);
@@ -3673,7 +3681,10 @@ impl CharacterOverlay {
                     }
                 }
                 c.step = 0;
-                w.phase = 0;
+                // both sides talk over who goes first
+                w.decide = [true, true];
+                w.phase = 4;
+                w.t = 1.2 + self.walk.rand() * 1.0;
             } else {
                 self.chatter(c, dt);
             }
@@ -3706,6 +3717,7 @@ impl CharacterOverlay {
             .copied()
             .chain(c.watchers.iter().copied().filter(|&i| Some(i) != c.cheater && self.arrived(i)))
             .filter(|&i| w.pair.is_none_or(|(a, b)| i != a && i != b))
+            .filter(|&i| !(w.phase == 4 && (0..=1).any(|s| w.decide[s] && w.teams[s].contains(&i))))
             .collect();
         for &i in &watching {
             let x = self.strip_px(i);
@@ -3847,6 +3859,11 @@ impl CharacterOverlay {
                     if grounded(wwk) {
                         wwk.start_bob(tn().jump_height * 0.45);
                     }
+                    w.winner = Some(winner_f);
+                    w.party = 1.6 + self.walk.rand() * 0.8;
+                    // the side that lost one picks who's next
+                    w.decide = [false; 2];
+                    w.decide[loser_side] = true;
                     w.teams[loser_side].retain(|&m| m != loser);
                     if !w.out[loser_side].contains(&loser) {
                         w.out[loser_side].push(loser);
@@ -3855,12 +3872,84 @@ impl CharacterOverlay {
                     w.t = 1.0;
                 }
             }
+            4 => {
+                // each side still picking: they turn to one another, nod, wave
+                // a hand about, then one of them steps up
+                w.t -= dt;
+                for side in 0..=1 {
+                    if !w.decide[side] {
+                        continue;
+                    }
+                    let team = w.teams[side].clone();
+                    for (k, &i) in team.iter().enumerate() {
+                        let other = if team.len() < 2 { None } else if k % 2 == 0 { team.get(k + 1).or(team.get(k.wrapping_sub(1))) } else { team.get(k - 1) };
+                        if let Some(&o) = other {
+                            if !self.walk_ref(i).social.is_some_and(|r| r.moving) {
+                                self.face(i, o);
+                            }
+                        }
+                        let wk = self.walk_of(i);
+                        if grounded(wk) && wk.rand() < dt * 0.8 {
+                            wk.start_bob(tn().jump_height * 0.07);
+                        }
+                        if wk.rand() < dt * 0.6 {
+                            wk.gesture = true;
+                        }
+                    }
+                }
+                if w.t <= 0.0 {
+                    for side in 0..=1 {
+                        if !std::mem::take(&mut w.decide[side]) || w.teams[side].is_empty() {
+                            continue;
+                        }
+                        // the keenest steps up: fresh, good at it, and a bit of luck
+                        let team = w.teams[side].clone();
+                        let mut keen = Vec::new();
+                        for &i in team.iter().filter(|&&i| Some(i) != w.winner) {
+                            let k = self.walk_ref(i).energy + self.skill(i, "wrestling") + self.walk.rand();
+                            keen.push((i, k));
+                        }
+                        let pick = keen.iter().max_by(|a, b| a.1.total_cmp(&b.1)).map(|k| k.0);
+                        if let Some(p) = pick {
+                            w.teams[side].retain(|&m| m != p);
+                            w.teams[side].insert(0, p);
+                            log::debug!("chat {}: side {side} sends {p} next", c.id);
+                            let wk = self.walk_of(p);
+                            if grounded(wk) {
+                                wk.start_bob(tn().jump_height * 0.2);
+                            }
+                            for &o in &team {
+                                if o != p {
+                                    self.face(o, p);
+                                }
+                            }
+                        }
+                    }
+                    w.phase = 0;
+                }
+            }
             _ => {
                 let airborne = c.members.iter().any(|&i| self.walk_ref(i).social.is_some_and(|s| s.flying));
                 if !airborne {
                     w.t -= dt;
                 }
-                if !airborne && w.t <= 0.0 {
+                // the winner's still celebrating: hops about, happy
+                if w.party > 0.0 {
+                    w.party -= dt;
+                    if let Some(v) = w.winner {
+                        let wk = self.walk_of(v);
+                        if grounded(wk) && wk.rand() < dt * 3.0 {
+                            let hop = tn().jump_height * (0.2 + wk.rand() * 0.2);
+                            wk.start_bob(hop);
+                        }
+                        if w.party <= 0.0 {
+                            if let Some(r) = wk.social.as_mut() {
+                                r.happy = false;
+                            }
+                        }
+                    }
+                }
+                if !airborne && w.t <= 0.0 && w.party <= 0.0 {
                     for &i in w.out[0].iter().chain(w.out[1].iter()) {
                         let wk = self.walk_of(i);
                         if wk.act == Act::Planted {
@@ -3883,7 +3972,11 @@ impl CharacterOverlay {
                         return;
                     }
                     w.pair = None;
-                    w.phase = 0;
+                    // the side that lost one talks over who goes next; with
+                    // nobody to talk to, the last one just steps up
+                    let left = (0..=1).filter(|&s| w.decide[s]).map(|s| w.teams[s].len()).max().unwrap_or(0);
+                    w.t = if left > 1 { 1.0 + self.walk.rand() * 1.0 } else { 0.5 };
+                    w.phase = 4;
                 }
             }
         }
