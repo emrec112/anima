@@ -699,11 +699,12 @@ impl CharacterOverlay {
                 }
             }
             _ => {
-                // rolling at speed: anyone on the losing side in its way goes flat
+                // rolling at speed
                 let speed = tn().snow_giant_speed;
                 r.x += r.dir * speed * dt;
                 let ground_ok = |this: &Self, i: usize| grounded(this.walk_ref(i)) && this.walk_ref(i).flat <= 0.0;
-                let losing: Vec<usize> = s.sides[r.losers].iter().copied().chain(if r.losers == r.side { r.crew.clone() } else { r.resist.clone() }).collect();
+                // everyone in its way goes flat, whichever side they're on
+                let losing: Vec<usize> = c.members.clone();
                 for i in losing {
                     if r.squashed.contains(&i) || !ground_ok(self, i) {
                         continue;
