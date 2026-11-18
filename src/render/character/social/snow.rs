@@ -702,7 +702,8 @@ impl CharacterOverlay {
                 // rolling at speed
                 let speed = tn().snow_giant_speed;
                 r.x += r.dir * speed * dt;
-                let ground_ok = |this: &Self, i: usize| grounded(this.walk_ref(i)) && this.walk_ref(i).flat <= 0.0;
+                // hopping or cheering doesn't save anyone; only the one held up by hand
+                let ground_ok = |this: &Self, i: usize| this.walk_ref(i).act != Act::Held && this.walk_ref(i).flat <= 0.0;
                 // everyone in its way goes flat, whichever side they're on
                 let losing: Vec<usize> = c.members.clone();
                 for i in losing {
@@ -713,6 +714,14 @@ impl CharacterOverlay {
                         log::debug!("chat {}: the giant snowball rolls over {i}", c.id);
                         r.squashed.push(i);
                         let wk = self.walk_of(i);
+                        // in the air: down onto the snow at once
+                        if matches!(wk.act, Act::Jump | Act::Fall) {
+                            wk.jump = 0.0;
+                            wk.air = 0.0;
+                            wk.vx = 0.0;
+                            wk.vy = 0.0;
+                            wk.act = Act::Idle;
+                        }
                         wk.flat = tn().snow_flat;
                         if let Some(sr) = wk.social.as_mut() {
                             sr.moving = false;
