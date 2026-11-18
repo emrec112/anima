@@ -1,9 +1,8 @@
-//! Snowball fight, everyone for themselves: they scatter over the snow and
-//! mostly pick one other to have it out with, one on one, now and then
-//! switching to someone else. One may run at its rival, which runs off,
-//! throwing back over its shoulder. Now and then a few get together and
-//! roll a giant snowball, then let it go at the crowd: everyone under it
-//! goes flat, and it bursts against the wall.
+//! Snowball fight: two sides scoop up little snowballs and throw them at
+//! each other, moving about. Someone may start a
+//! giant snowball: rolled up big, then sent rolling at the other side. The
+//! other side may come and push back; whoever loses gets rolled over,
+//! flattened for a moment, and it bursts against the wall.
 
 use super::super::CharacterOverlay;
 use super::*;
@@ -26,18 +25,6 @@ pub(super) struct Thrower {
     target: usize,
     // how long it'll keep at it (s): runs down, and it's had enough
     patience: f32,
-    // the one it's having it out with, how long for, and how far off it likes to stand
-    rival: Option<usize>,
-    rival_t: f32,
-    gap: f32,
-    // running at its rival, and for how long so far
-    chase: Option<usize>,
-    chase_t: f32,
-    // running off from someone: for how long (below 0 while slipping past
-    // them), which way, and the wait before it throws back again
-    flee_t: f32,
-    flee_dir: f32,
-    shot_t: f32,
 }
 
 /// A snowball in the air: strip x and screen y it left from and is going to.
@@ -55,17 +42,27 @@ pub(super) struct Flying {
     pub(super) size: f32,
 }
 
-/// The giant snowball. phase 0: getting behind it, 1: rolling it about so
-/// it grows, 2: lining up to let it go, 3: rolling away at speed.
+/// The giant snowball. phase 0: getting behind it, 1: pushing it about so
+/// it grows, 2: lining up to send it off, 3: the other side pushing back,
+/// 4: rolling away at speed.
 #[derive(Clone, Debug)]
 pub(super) struct Roll {
     pub(super) crew: Vec<usize>,
+    resist: Vec<usize>,
+    // the crew's side
+    side: usize,
     // strip x of its middle, how wide (px), which way it's going
     pub(super) x: f32,
     pub(super) size: f32,
     dir: f32,
     phase: u8,
     t: f32,
+    // the push-back: where it started, and the shove this moment
+    base: f32,
+    force: f32,
+    force_t: f32,
+    // the side it's going to roll over
+    losers: usize,
     squashed: Vec<usize>,
 }
 
@@ -75,8 +72,7 @@ pub(super) struct Snow {
     hi: f32,
     // screen y of the floor
     pub(super) ground: f32,
-    // everyone in it, the giant ball's crew too
-    players: Vec<usize>,
+    sides: [Vec<usize>; 2],
     pub(super) hands: Vec<Thrower>,
     pub(super) balls: Vec<Flying>,
     // bursts of snow: strip x, screen y, age (s), size (heights)
@@ -114,18 +110,26 @@ impl CharacterOverlay {
         self.snow_setup(c, x + 60.0, x + len - 60.0, None);
     }
 
-    /// Everyone spread out over `lo`..`hi`; `opener` throws the first one.
+    /// Two sides on the stretch `lo`..`hi`, by where they stand; `opener`
+    /// throws the first one.
     fn snow_setup(&mut self, c: &mut Chat, lo: f32, hi: f32, opener: Option<usize>) {
         log::debug!("chat {}: snowball fight, {:?}", c.id, c.members);
         let mut players = c.members.clone();
         players.sort_by(|a, b| self.strip_px(*a).total_cmp(&self.strip_px(*b)));
-        let count = players.len() as f32;
-        for (k, &i) in players.iter().enumerate() {
-            let jitter = (self.walk.rand() - 0.5) * (hi - lo) / count * 0.5;
-            let goal = (lo + (k as f32 + 0.5) / count * (hi - lo) + jitter).clamp(lo, hi);
-            self.go(i, goal, 0.16);
+        let half = players.len() / 2;
+        let sides = [players[..half].to_vec(), players[half..].to_vec()];
+        let span = (hi - lo) * 0.28;
+        for (side, team) in sides.iter().enumerate() {
+            for (k, &i) in team.iter().enumerate() {
+                let at = (k as f32 + 0.5) / team.len().max(1) as f32 * span;
+                let goal = if side == 0 { lo + at } else { hi - at };
+                self.go(i, goal, 0.16);
+                if let Some(r) = self.walk_of(i).social.as_mut() {
+                    r.face_left = side == 1;
+                }
+            }
         }
-        c.snow = Some(Snow { lo, hi, ground: 0.0, players, hands: Vec::new(), balls: Vec::new(), puffs: Vec::new(), piles: Vec::new(), roll: None });
+        c.snow = Some(Snow { lo, hi, ground: 0.0, sides, hands: Vec::new(), balls: Vec::new(), puffs: Vec::new(), piles: Vec::new(), roll: None });
         if let Some(o) = opener {
             c.talker = o;
         }
@@ -139,8 +143,7 @@ impl CharacterOverlay {
 
     fn thrower(&mut self, i: usize, t: f32) -> Thrower {
         let patience = tn().snow_stay_min + self.walk.rand() * tn().snow_stay_rand;
-        let gap = self.height_of(i) * (2.5 + self.walk.rand() * 1.5);
-        Thrower { i, phase: 0, t, ball: 0.0, target: i, patience, rival: None, rival_t: 0.0, gap, chase: None, chase_t: 0.0, flee_t: 0.0, flee_dir: 1.0, shot_t: 0.0 }
+        Thrower { i, phase: 0, t, ball: 0.0, target: i, patience }
     }
 
     /// Free to start or join a snowball fight (or a snowman).
@@ -191,8 +194,8 @@ impl CharacterOverlay {
         Some(c)
     }
 
-    /// Someone free nearby sees the snowballs flying and joins in. There's
-    /// no limit: the more the merrier.
+    /// Someone free nearby sees the snowballs flying and joins the side
+    /// with fewer on it. There's no limit: the more the merrier.
     pub(super) fn snow_join(&mut self, c: &mut Chat, n: usize, every: f32) {
         if c.step == 9 || c.timer <= 0.0 || !super::super::weather::now().snow {
             return;
@@ -200,9 +203,8 @@ impl CharacterOverlay {
         let Some(s) = c.snow.as_ref() else { return };
         let Some(&first) = c.members.first() else { return };
         let ws = self.walk_ref(first).ws;
-        let (lo, hi) = (s.lo, s.hi);
-        let mid = (lo + hi) * 0.5;
-        let reach = (hi - lo) * 0.5 + self.view_w * 0.3;
+        let mid = (s.lo + s.hi) * 0.5;
+        let reach = (s.hi - s.lo) * 0.5 + self.view_w * 0.3;
         let Some(j) = (0..n).find(|&j| !c.members.contains(&j) && self.walk_ref(j).ws == ws && self.snow_free(j) && (self.strip_px(j) - mid).abs() < reach) else { return };
         let keen = 1.0 + c.members.iter().map(|&m| self.bond(j, m).0).fold(0.0, f32::max);
         if self.walk_of(j).rand() >= every * tn().snow_join * keen {
@@ -210,31 +212,54 @@ impl CharacterOverlay {
         }
         self.enlist(j, c.id);
         let hand = self.thrower(j, -0.8);
-        let goal = self.strip_px(j).clamp(lo, hi);
         let Some(s) = c.snow.as_mut() else { return };
-        s.players.push(j);
+        let side = if s.sides[0].len() != s.sides[1].len() {
+            usize::from(s.sides[1].len() < s.sides[0].len())
+        } else {
+            usize::from(self.strip_px(j) > mid)
+        };
+        s.sides[side].push(j);
         s.hands.push(hand);
+        let (a, b) = Self::snow_zone(s, side);
+        let goal = a + self.walk.rand() * (b - a);
         c.members.push(j);
         c.scores.push((j, 0.0));
         self.go(j, goal, 0.18);
-        log::debug!("chat {}: {j} joins the snowball fight", c.id);
+        log::debug!("chat {}: {j} joins the snowball fight on side {side}", c.id);
     }
 
-    fn crewing(s: &Snow, i: usize) -> bool {
-        s.roll.as_ref().is_some_and(|r| r.crew.contains(&i))
+    /// Where `side` stands: (from, to) on the strip.
+    fn snow_zone(s: &Snow, side: usize) -> (f32, f32) {
+        let span = (s.hi - s.lo) * 0.28;
+        if side == 0 { (s.lo, s.lo + span) } else { (s.hi - span, s.hi) }
+    }
+
+    fn side_of(s: &Snow, i: usize) -> Option<usize> {
+        if s.sides[0].contains(&i) {
+            Some(0)
+        } else if s.sides[1].contains(&i) {
+            Some(1)
+        } else {
+            None
+        }
     }
 
     pub(super) fn run_snow(&mut self, c: &mut Chat, dt: f32) {
         let Some(mut s) = c.snow.take() else { return };
-        s.players.retain(|i| c.members.contains(i));
+        for side in &mut s.sides {
+            side.retain(|i| c.members.contains(i));
+        }
         s.hands.retain(|h| c.members.contains(&h.i));
         if let Some(r) = s.roll.as_mut() {
             r.crew.retain(|i| c.members.contains(i));
+            r.resist.retain(|i| c.members.contains(i));
         }
-        if s.roll.as_ref().is_some_and(|r| r.crew.is_empty() && r.phase < 3) {
-            s.roll = None;
+        if s.roll.as_ref().is_some_and(|r| r.crew.is_empty() && r.phase < 4) {
+            let r = s.roll.take().unwrap_or_else(|| unreachable!());
+            self.roll_back(&mut s, &r);
         }
-        if s.players.len() < 2 {
+        let busy = s.roll.as_ref().map_or(0, |r| r.crew.len() + r.resist.len());
+        if s.sides[0].len() + s.sides[1].len() + busy < 2 {
             self.snow_over(c);
             return;
         }
@@ -248,11 +273,11 @@ impl CharacterOverlay {
         s.piles.retain(|p| p.1 < PILE_LIFE);
         if c.step == 9 {
             c.wait -= dt;
-            let ready = s.players.iter().all(|&i| self.arrived(i));
+            let ready = s.sides.iter().flatten().all(|&i| self.arrived(i));
             if ready || c.wait <= 0.0 {
                 self.clear_happy(&c.members);
                 s.ground = c.members.iter().map(|&i| self.body_rect(i)[3]).fold(f32::MIN, f32::max);
-                for i in s.players.clone() {
+                for i in s.sides.iter().flatten().copied().collect::<Vec<_>>() {
                     // not all at once; whoever started it has one ready
                     let t = if i == c.talker && c.games == 1 { 0.9 } else { -self.walk.rand() * 1.5 };
                     let hand = self.thrower(i, t);
@@ -266,8 +291,10 @@ impl CharacterOverlay {
             return;
         }
         self.snow_tired(c, &mut s, dt);
+        self.snow_even(c, &mut s);
         self.snow_start_roll(c, &mut s, dt);
-        self.snow_hands(c, &mut s, dt);
+        let throwing = !s.sides[0].is_empty() && !s.sides[1].is_empty();
+        self.snow_hands(c, &mut s, dt, throwing);
         self.snow_balls(c, &mut s, dt);
         self.snow_roll(c, &mut s, dt);
         c.snow = Some(s);
@@ -281,18 +308,20 @@ impl CharacterOverlay {
             return;
         }
         let rate = if !super::super::weather::now().snow || c.timer <= 0.0 { 4.0 } else { 1.0 };
-        let chased: Vec<usize> = s.hands.iter().filter_map(|h| h.chase).collect();
         let mut done = Vec::new();
         for h in &mut s.hands {
             h.patience -= dt * rate;
-            if h.patience <= 0.0 && h.phase == 0 && h.t < 0.0 && h.chase.is_none() && !chased.contains(&h.i) {
+            let in_side = s.sides[0].contains(&h.i) || s.sides[1].contains(&h.i);
+            if h.patience <= 0.0 && in_side && h.phase == 0 && h.t < 0.0 {
                 done.push(h.i);
             }
         }
         for i in done {
             log::debug!("chat {}: {i} has had enough snowballs", c.id);
             s.hands.retain(|h| h.i != i);
-            s.players.retain(|&m| m != i);
+            for side in &mut s.sides {
+                side.retain(|&m| m != i);
+            }
             c.members.retain(|&m| m != i);
             c.scores.retain(|sc| sc.0 != i);
             let wk = self.walk_of(i);
@@ -300,6 +329,27 @@ impl CharacterOverlay {
             wk.start_bob(tn().jump_height * 0.25);
             wk.snow_cool = tn().snow_again;
             self.leave(i, c.id);
+        }
+    }
+
+    /// A side's gone empty: one from the other side comes over to it.
+    fn snow_even(&mut self, c: &Chat, s: &mut Snow) {
+        if s.roll.is_some() {
+            return;
+        }
+        for side in 0..=1 {
+            if !s.sides[side].is_empty() || s.sides[1 - side].len() < 2 {
+                continue;
+            }
+            let mid = (s.lo + s.hi) * 0.5;
+            let other = &s.sides[1 - side];
+            let Some(&i) = other.iter().min_by(|&&a, &&b| (self.strip_px(a) - mid).abs().total_cmp(&(self.strip_px(b) - mid).abs())) else { continue };
+            s.sides[1 - side].retain(|&m| m != i);
+            s.sides[side].push(i);
+            let (a, b) = Self::snow_zone(s, side);
+            let goal = a + self.walk.rand() * (b - a);
+            self.steer(i, goal, 0.2);
+            log::debug!("chat {}: {i} goes over to the other side", c.id);
         }
     }
 
@@ -340,98 +390,16 @@ impl CharacterOverlay {
         self.walk_of(i).start_bob(tn().jump_height * 0.12);
     }
 
-    /// Someone to have it out with: whoever's after this one already (that
-    /// makes a pair), else whoever nobody much is after, the nearer the likelier.
-    fn pick_rival(&mut self, s: &Snow, i: usize) -> Option<usize> {
-        let x = self.strip_px(i);
-        let others: Vec<usize> = s.players.iter().copied().filter(|&o| o != i && !Self::crewing(s, o)).collect();
-        if others.is_empty() {
-            return None;
-        }
-        let after_me: Vec<usize> = s.hands.iter().filter(|h| h.rival == Some(i) && others.contains(&h.i)).map(|h| h.i).collect();
-        if !after_me.is_empty() && self.walk.rand() < 0.7 {
-            return Some(after_me[(self.walk.rand() * after_me.len() as f32) as usize % after_me.len()]);
-        }
-        let mut best = None;
-        let mut best_score = f32::MAX;
-        for &o in &others {
-            let taken = s.hands.iter().filter(|h| h.rival == Some(o)).count() as f32;
-            let score = (self.strip_px(o) - x).abs() * (0.6 + self.walk.rand() * 0.8) + taken * self.view_w * 0.2;
-            if score < best_score {
-                best_score = score;
-                best = Some(o);
-            }
-        }
-        best
-    }
-
-    fn snow_hands(&mut self, c: &Chat, s: &mut Snow, dt: f32) {
-        let chasing: Vec<(usize, usize)> = s.hands.iter().filter_map(|h| h.chase.map(|t| (h.i, t))).collect();
+    fn snow_hands(&mut self, c: &Chat, s: &mut Snow, dt: f32, throwing: bool) {
         for k in 0..s.hands.len() {
             let mut h = s.hands[k];
             let i = h.i;
             // off with the giant one, or flat on the floor
-            if Self::crewing(s, i) || self.walk_ref(i).flat > 0.0 {
-                continue;
-            }
-            let x = self.strip_px(i);
-            let tall = self.height_of(i);
-            h.shot_t -= dt;
-            // the one it's having it out with: kept a while, then maybe someone else
-            h.rival_t += dt;
-            let lost = h.rival.is_none_or(|r| !s.players.contains(&r) || Self::crewing(s, r));
-            if lost || (h.rival_t > 12.0 && self.walk.rand() < dt * 0.1) {
-                h.rival = self.pick_rival(s, i);
-                h.rival_t = 0.0;
-            }
-            let Some(rival) = h.rival else {
-                s.hands[k] = h;
-                continue;
-            };
-            // someone's running at it: off it goes, throwing back over its shoulder
-            let after: Vec<usize> = chasing.iter().filter(|p| p.1 == i).map(|p| p.0).collect();
-            if !after.is_empty() {
-                self.snow_flee(c, s, &mut h, &after, dt);
-                s.hands[k] = h;
-                continue;
-            }
-            if h.flee_t != 0.0 {
-                h.flee_t = 0.0;
-            }
-            // running at its rival with a ball: throws once right up close
-            if let Some(t) = h.chase {
-                h.chase_t += dt;
-                let tx = self.strip_px(t);
-                if !s.players.contains(&t) || Self::crewing(s, t) || self.walk_ref(t).flat > 0.0 {
-                    h.chase = None;
-                } else if ((tx - x).abs() < tall * 0.7 || h.chase_t > 6.0) && grounded(self.walk_ref(i)) {
-                    self.face(i, t);
-                    self.snow_throw(s, i, t);
-                    h.chase = None;
-                    h.ball = 0.0;
-                    h.phase = 0;
-                    h.t = -(0.6 + self.walk.rand() * 1.0);
-                    // and a step back after
-                    let back = if tx > x { -1.0 } else { 1.0 };
-                    self.steer(i, (x + back * tall).clamp(s.lo, s.hi), 0.18);
-                } else {
-                    let ahead = if tx > x { 1.0 } else { -1.0 };
-                    self.steer(i, tx + ahead * tall * 0.3, tn().snow_chase_speed);
-                }
-                s.hands[k] = h;
+            let Some(side) = Self::side_of(s, i) else { continue };
+            if self.walk_ref(i).flat > 0.0 {
                 continue;
             }
             if !self.arrived(i) {
-                s.hands[k] = h;
-                continue;
-            }
-            // keeping its distance from its rival
-            let rx = self.strip_px(rival);
-            let off = x - rx;
-            if (off.abs() - h.gap).abs() > tall * 0.8 && h.phase == 0 {
-                let side = if off.abs() < 1.0 { if self.walk.rand() < 0.5 { -1.0 } else { 1.0 } } else { off.signum() };
-                let goal = (rx + side * h.gap).clamp(s.lo, s.hi);
-                self.steer(i, goal, 0.17);
                 s.hands[k] = h;
                 continue;
             }
@@ -445,89 +413,46 @@ impl CharacterOverlay {
                     if wk.rand() < dt * 2.0 {
                         wk.start_bob(tn().jump_height * 0.05);
                     }
-                    if h.ball >= 1.0 && self.walk_ref(rival).flat <= 0.0 {
-                        // now and then it runs right at its rival instead
-                        let busy = chasing.iter().any(|p| p.1 == rival);
-                        if !busy && self.walk.rand() < tn().snow_chase {
-                            log::debug!("chat {}: {i} runs at {rival}", c.id);
-                            h.chase = Some(rival);
-                            h.chase_t = 0.0;
+                    if h.ball >= 1.0 && throwing {
+                        let foes = s.sides[1 - side].clone();
+                        let standing: Vec<usize> = foes.iter().copied().filter(|&f| self.walk_ref(f).flat <= 0.0).collect();
+                        if standing.is_empty() {
                             s.hands[k] = h;
                             continue;
                         }
-                        h.target = rival;
+                        let pick = standing[(self.walk.rand() * standing.len() as f32) as usize % standing.len()];
+                        h.target = pick;
                         h.phase = 1;
                         h.t = 0.0;
-                        self.face(i, rival);
+                        self.face(i, pick);
                         self.walk_of(i).gesture = true;
                     }
                 }
                 _ => {
-                    if !s.players.contains(&h.target) {
+                    if !c.members.contains(&h.target) || Self::side_of(s, h.target) != Some(1 - side) {
                         h.phase = 0;
                         h.t = 0.0;
                     } else if h.t > 0.35 {
                         self.snow_throw(s, i, h.target);
                         h.ball = 0.0;
                         h.phase = 0;
-                        // a breather, and often a step to one side
+                        // a breather, and often a step somewhere else
                         h.t = -(0.8 + self.walk.rand() * 1.6);
-                        if self.walk.rand() < 0.5 {
-                            let goal = (x + (self.walk.rand() - 0.5) * tall * 2.0).clamp(s.lo, s.hi);
+                        if self.walk.rand() < 0.6 {
+                            let (a, b) = Self::snow_zone(s, side);
+                            let goal = a + self.walk.rand() * (b - a);
                             self.steer(i, goal, 0.15);
                         }
                     }
                 }
             }
-            if self.arrived(i) {
-                self.face(i, rival);
+            // eyes on the other side
+            if h.phase == 0 && self.arrived(i) {
+                if let Some(r) = self.walk_of(i).social.as_mut() {
+                    r.face_left = side == 1;
+                }
             }
             s.hands[k] = h;
-        }
-    }
-
-    /// Run at: away from them flat out, tiring after a bit, to the end of
-    /// the snow and no further; it slips past them now and then once
-    /// cornered, and throws back whenever it has a ball and a moment.
-    fn snow_flee(&mut self, c: &Chat, s: &mut Snow, h: &mut Thrower, after: &[usize], dt: f32) {
-        let i = h.i;
-        let x = self.strip_px(i);
-        let tall = self.height_of(i);
-        let near = after.iter().copied().min_by(|&a, &b| (self.strip_px(a) - x).abs().total_cmp(&(self.strip_px(b) - x).abs())).unwrap_or(after[0]);
-        let nx = self.strip_px(near);
-        if h.flee_t == 0.0 {
-            // seen it coming: a startled hop, and off
-            h.flee_t = 0.001;
-            let wk = self.walk_of(i);
-            wk.start_bob(tn().jump_height * 0.25);
-            wk.smile = wk.smile.max(1.0);
-            h.phase = 0;
-        }
-        h.flee_t += dt;
-        if h.flee_t > 0.0 {
-            h.flee_dir = if nx < x { 1.0 } else { -1.0 };
-        }
-        let margin = tall * 0.5;
-        let wall = if h.flee_dir > 0.0 { s.hi + margin } else { s.lo - margin };
-        let cornered = (wall - x) * h.flee_dir < margin * 0.5;
-        let close = (nx - x).abs() < tall * 1.2;
-        if cornered && close && h.flee_t > 0.6 && self.walk.rand() < dt * 1.5 {
-            // a dash past them
-            h.flee_dir = -h.flee_dir;
-            h.flee_t = -0.7;
-            log::debug!("chat {}: {i} slips past {near}", c.id);
-        }
-        let wall = if h.flee_dir > 0.0 { s.hi + margin } else { s.lo - margin };
-        let pace = if h.flee_t.abs() < 1.2 { tn().snow_flee_speed } else { tn().snow_flee_speed * 0.65 };
-        let step = x + h.flee_dir * tall * 1.5;
-        let goal = if h.flee_dir > 0.0 { step.min(wall) } else { step.max(wall) };
-        self.steer(i, goal, pace);
-        // a new ball made on the run, slowly
-        h.ball = (h.ball + dt / 1.8).min(1.0);
-        if h.ball >= 1.0 && h.shot_t <= 0.0 && (nx - x).abs() < tall * 4.0 && grounded(self.walk_ref(i)) {
-            self.snow_throw(s, i, near);
-            h.ball = 0.0;
-            h.shot_t = 1.2;
         }
     }
 
@@ -578,55 +503,81 @@ impl CharacterOverlay {
         }
     }
 
-    /// Now and then someone starts a giant snowball; others gather round to
-    /// help while it grows.
+    /// Now and then someone starts a giant snowball (one is enough); others
+    /// from its side may come and help as it grows.
     fn snow_start_roll(&mut self, c: &Chat, s: &mut Snow, dt: f32) {
-        let chased: Vec<usize> = s.hands.iter().filter_map(|h| h.chase).collect();
-        let free = |this: &Self, s: &Snow, i: usize| {
-            !Self::crewing(s, i) && this.walk_ref(i).flat <= 0.0 && !chased.contains(&i) && s.hands.iter().any(|h| h.i == i && h.phase == 0 && h.chase.is_none())
-        };
-        if let Some(r) = s.roll.as_ref() {
-            if r.phase <= 1 && r.crew.len() < 4 && self.walk.rand() < dt * tn().snow_help {
-                let pool: Vec<usize> = s.players.iter().copied().filter(|&i| free(self, s, i)).collect();
-                // the nearer ones are likelier to come
-                let x = r.x;
-                let mut best = None;
-                let mut best_d = f32::MAX;
-                for &i in &pool {
-                    let d = (self.strip_px(i) - x).abs() * (0.5 + self.walk.rand());
-                    if d < best_d {
-                        best_d = d;
-                        best = Some(i);
-                    }
-                }
-                if let Some(i) = best {
-                    if let Some(r) = s.roll.as_mut() {
-                        r.crew.push(i);
-                    }
+        if let Some(r) = s.roll.as_mut() {
+            // a helper from the same side, while it's still being rolled up
+            if r.phase <= 1 && self.walk.rand() < dt * tn().snow_help {
+                let side = r.side;
+                let free: Vec<usize> = s.sides[side]
+                    .iter()
+                    .copied()
+                    .filter(|&i| s.hands.iter().any(|h| h.i == i && h.phase == 0))
+                    .collect();
+                if s.sides[side].len() >= 2 && !free.is_empty() {
+                    let i = free[(self.walk.rand() * free.len() as f32) as usize % free.len()];
+                    s.sides[side].retain(|&m| m != i);
+                    r.crew.push(i);
                     log::debug!("chat {}: {i} comes to help roll the giant one", c.id);
                 }
             }
             return;
         }
-        if s.players.len() < tn().snow_roll_min as usize || self.walk.rand() >= dt * tn().snow_roll_rate {
+        let players = s.sides[0].len() + s.sides[1].len();
+        if players < tn().snow_roll_min as usize || self.walk.rand() >= dt * tn().snow_roll_rate {
             return;
         }
-        let pool: Vec<usize> = s.players.iter().copied().filter(|&i| free(self, s, i)).collect();
-        let Some(&i) = pool.get((self.walk.rand() * pool.len() as f32) as usize % pool.len().max(1)) else { return };
+        let side = usize::from(self.walk.rand() < 0.5);
+        let free: Vec<usize> = s.sides[side]
+            .iter()
+            .copied()
+            .filter(|&i| s.hands.iter().any(|h| h.i == i && h.phase == 0))
+            .collect();
+        let Some(&i) = free.get((self.walk.rand() * free.len() as f32) as usize % free.len().max(1)) else { return };
+        s.sides[side].retain(|&m| m != i);
         let height = self.height_of(i);
-        let dir = if self.walk.rand() < 0.5 { -1.0 } else { 1.0 };
-        let x = (self.strip_px(i) + dir * self.width_of(i)).clamp(s.lo + height, (s.hi - height).max(s.lo + height));
+        let (za, _) = Self::snow_zone(s, 1);
+        let (_, zb) = Self::snow_zone(s, 0);
         log::debug!("chat {}: {i} starts a giant snowball", c.id);
-        s.roll = Some(Roll { crew: vec![i], x, size: height * 0.2, dir, phase: 0, t: 0.0, squashed: Vec::new() });
+        let dir = if side == 0 { 1.0 } else { -1.0 };
+        s.roll = Some(Roll { crew: vec![i], resist: Vec::new(), side, x: (za + zb) * 0.5, size: height * 0.2, dir, phase: 0, t: 0.0, base: 0.0, force: 0.0, force_t: 0.0, losers: 1 - side, squashed: Vec::new() });
+    }
+
+    /// Back to throwing, everyone who was busy with the giant one.
+    fn roll_back(&mut self, s: &mut Snow, r: &Roll) {
+        for (team, side) in [(&r.crew, r.side), (&r.resist, 1 - r.side)] {
+            for &i in team {
+                if !s.sides[side].contains(&i) {
+                    s.sides[side].push(i);
+                }
+                if let Some(sr) = self.walk_of(i).social.as_mut() {
+                    sr.face_lock = false;
+                    sr.lean = 0.0;
+                }
+                if self.walk_ref(i).flat <= 0.0 {
+                    let (a, b) = Self::snow_zone(s, side);
+                    let goal = a + self.walk.rand() * (b - a);
+                    self.steer(i, goal, 0.16);
+                }
+                if let Some(h) = s.hands.iter_mut().find(|h| h.i == i) {
+                    h.phase = 0;
+                    h.t = -1.0;
+                }
+            }
+        }
     }
 
     fn snow_roll(&mut self, c: &mut Chat, s: &mut Snow, dt: f32) {
         let Some(mut r) = s.roll.take() else { return };
-        let Some(&first) = r.crew.first().or(c.members.first()) else { return };
+        let Some(&first) = r.crew.first().or(r.resist.first()).or(c.members.first()) else { return };
         let height = self.height_of(first);
         let width = self.width_of(first);
         let biggest = height * tn().snow_big;
-        let (lo, hi) = (s.lo + width, s.hi - width);
+        // the stretch between the two sides; the whole field if that's too short
+        let (za, _) = Self::snow_zone(s, 1);
+        let (_, zb) = Self::snow_zone(s, 0);
+        let (lo, hi) = if za - zb > biggest * 2.5 { (zb + width, za - width) } else { (s.lo, s.hi) };
         // places behind the ball (`dir` the way it's pushed), one after the other
         let behind = |r: &Roll, k: usize, dir: f32| r.x - dir * (r.size * 0.5 + width * 0.3 + k as f32 * width * 0.45);
         r.t += dt;
@@ -637,10 +588,12 @@ impl CharacterOverlay {
                     let at = behind(&r, k, r.dir);
                     if (self.strip_px(i) - at).abs() > 6.0 {
                         there = false;
-                        self.steer(i, at, 0.2);
+                        if self.arrived(i) {
+                            self.steer(i, at, 0.18);
+                        }
                     }
                 }
-                if there || r.t > 6.0 {
+                if there || r.t > 8.0 {
                     r.phase = 1;
                     r.t = 0.0;
                 }
@@ -651,20 +604,16 @@ impl CharacterOverlay {
                 let speed = tn().snow_roll_speed * (1.0 - 0.45 * (r.size / biggest).min(1.0)) * (0.8 + 0.2 * crew.min(3.0));
                 r.x += r.dir * speed * dt;
                 r.size = (r.size + speed * dt * tn().snow_grow).min(biggest);
-                // helpers just come: they fall in behind as it goes
                 self.push_along(&r.crew.clone(), r.dir, |k| behind(&r, k, r.dir), dt);
                 if r.size >= biggest {
-                    // big enough: let it go at the crowd, the side where there are more
-                    let others: Vec<f32> = s.players.iter().filter(|&&i| !r.crew.contains(&i)).map(|&i| self.strip_px(i)).collect();
-                    let right = others.iter().filter(|&&p| p > r.x).count();
-                    let left = others.len() - right;
-                    r.dir = if right == left { r.dir } else if right > left { 1.0 } else { -1.0 };
+                    // big enough: turned to face the other side, ready to send off
+                    r.dir = if r.side == 0 { 1.0 } else { -1.0 };
                     r.phase = 2;
                     r.t = 0.0;
                     self.free_crew(&r.crew);
                     log::debug!("chat {}: the giant snowball is ready", c.id);
                 } else if (r.dir > 0.0 && r.x + r.size * 0.5 >= hi) || (r.dir < 0.0 && r.x - r.size * 0.5 <= lo) {
-                    // the end of the snow: round to the other side and back
+                    // the end of the floor: round to the other side and back
                     r.dir = -r.dir;
                     r.phase = 0;
                     r.t = 0.0;
@@ -672,48 +621,91 @@ impl CharacterOverlay {
                 }
             }
             2 => {
-                // round behind it for the big push, nobody waits for anybody
-                let mut there = true;
+                // round behind it to give it the big push; the other side
+                // may see it coming and run over to push back
                 for (k, &i) in r.crew.iter().enumerate() {
                     let at = behind(&r, k, r.dir);
-                    if (self.strip_px(i) - at).abs() > 6.0 {
-                        there = false;
-                        self.steer(i, at, 0.24);
-                    } else {
+                    if (self.strip_px(i) - at).abs() > 6.0 && self.arrived(i) {
+                        self.steer(i, at, 0.2);
+                    }
+                    if self.arrived(i) {
                         self.face_x(i, r.x);
                     }
                 }
-                if (there && r.t > 0.6) || r.t > 4.0 {
-                    log::debug!("chat {}: off goes the giant snowball", c.id);
-                    for &i in &r.crew {
-                        let wk = self.walk_of(i);
-                        wk.start_bob(tn().jump_height * 0.3);
-                        wk.smile = wk.smile.max(1.5);
+                if r.resist.is_empty() && r.t < dt * 1.5 && self.walk.rand() < tn().snow_resist {
+                    let foes: Vec<usize> = s.sides[1 - r.side]
+                        .iter()
+                        .copied()
+                        .filter(|&i| self.walk_ref(i).flat <= 0.0)
+                        .collect();
+                    let most = (1 + (self.walk.rand() * 3.0) as usize).min(foes.len());
+                    for &i in foes.iter().take(most) {
+                        s.sides[1 - r.side].retain(|&m| m != i);
+                        r.resist.push(i);
                     }
-                    // those it's heading for see it coming
-                    for i in s.players.clone() {
-                        if r.crew.contains(&i) {
-                            continue;
-                        }
-                        let ahead = (self.strip_px(i) - r.x) * r.dir > 0.0;
-                        let wk = self.walk_of(i);
-                        if ahead && grounded(wk) {
-                            wk.start_bob(tn().jump_height * 0.2);
-                        }
+                    if !r.resist.is_empty() {
+                        log::debug!("chat {}: {:?} run over to push it back", c.id, r.resist);
                     }
+                }
+                for (k, &i) in r.resist.clone().iter().enumerate() {
+                    let at = behind(&r, k, -r.dir);
+                    self.steer(i, at, 0.26);
+                }
+                // in place: they start pushing straight away, nobody waits
+                // for the other side (whoever gets there in time pushes back)
+                let crew_there = r.crew.iter().all(|&i| self.arrived(i));
+                if (crew_there && r.t > 0.8) || r.t > 5.0 {
                     r.phase = 3;
                     r.t = 0.0;
+                    r.base = r.x;
+                }
+            }
+            3 => {
+                // shoving it back and forth: whoever pushes harder wins
+                // only those who've got to it push back; the rest are still running
+                let at_ball: Vec<usize> = r.resist.iter().enumerate().filter(|&(k, &i)| (self.strip_px(i) - behind(&r, k, -r.dir)).abs() < width * 0.5).map(|(_, &i)| i).collect();
+                r.force_t -= dt;
+                if r.force_t <= 0.0 {
+                    r.force_t = 0.4 + self.walk.rand() * 0.4;
+                    let mut force = 0.0;
+                    for &i in &r.crew {
+                        force += self.walk.rand() * self.skilled(i, "snowball fight", 0.6, 1.3);
+                    }
+                    for &i in &at_ball {
+                        force -= self.walk.rand() * self.skilled(i, "snowball fight", 0.6, 1.3);
+                    }
+                    // nobody against it: it gets going quickly
+                    r.force = force * 60.0 + if at_ball.is_empty() { 150.0 } else { 0.0 };
+                }
+                let base = r.base;
+                r.x += r.dir * r.force * dt;
+                let moved = (r.x - base) * r.dir;
+                self.push_along(&r.crew.clone(), r.dir, |k| behind(&r, k, r.dir), dt);
+                for (k, &i) in r.resist.clone().iter().enumerate() {
+                    if at_ball.contains(&i) {
+                        self.push_along(&[i], -r.dir, |_| behind(&r, k, -r.dir), dt);
+                    } else {
+                        self.steer(i, behind(&r, k, -r.dir), 0.26);
+                    }
+                }
+                if moved.abs() > width * 1.3 || r.t > 7.0 {
+                    let crew_won = moved > 0.0;
+                    log::debug!("chat {}: the push-back is won by {}", c.id, if crew_won { "the rollers" } else { "the other side" });
+                    r.losers = if crew_won { 1 - r.side } else { r.side };
+                    if !crew_won {
+                        r.dir = -r.dir;
+                    }
+                    self.launch_giant(c, s, &mut r);
                 }
             }
             _ => {
-                // rolling at speed: everyone in its way goes flat, but its own crew
-                r.x += r.dir * tn().snow_giant_speed * dt;
-                for i in s.players.clone() {
-                    if r.crew.contains(&i) || r.squashed.contains(&i) {
-                        continue;
-                    }
-                    let wk = self.walk_ref(i);
-                    if !grounded(wk) || wk.flat > 0.0 {
+                // rolling at speed: anyone on the losing side in its way goes flat
+                let speed = tn().snow_giant_speed;
+                r.x += r.dir * speed * dt;
+                let ground_ok = |this: &Self, i: usize| grounded(this.walk_ref(i)) && this.walk_ref(i).flat <= 0.0;
+                let losing: Vec<usize> = s.sides[r.losers].iter().copied().chain(if r.losers == r.side { r.crew.clone() } else { r.resist.clone() }).collect();
+                for i in losing {
+                    if r.squashed.contains(&i) || !ground_ok(self, i) {
                         continue;
                     }
                     if (self.strip_px(i) - r.x).abs() < r.size * 0.4 {
@@ -735,7 +727,7 @@ impl CharacterOverlay {
                 let wall_hi = (s.hi + width * 2.0).min(width_all - r.size * 0.5);
                 if (r.dir > 0.0 && r.x >= wall_hi) || (r.dir < 0.0 && r.x <= wall_lo) || r.t > 8.0 {
                     self.burst_giant(c, s, &r);
-                    self.free_crew(&r.crew);
+                    self.roll_back(s, &r);
                     return;
                 }
             }
@@ -768,6 +760,28 @@ impl CharacterOverlay {
         }
     }
 
+    /// The big push: off it rolls, and everyone gets out of its way.
+    fn launch_giant(&mut self, c: &Chat, s: &mut Snow, r: &mut Roll) {
+        log::debug!("chat {}: off goes the giant snowball at side {}", c.id, r.losers);
+        let pushers = if r.losers == r.side { r.resist.clone() } else { r.crew.clone() };
+        for &i in &pushers {
+            let wk = self.walk_of(i);
+            wk.start_bob(tn().jump_height * 0.3);
+            wk.smile = wk.smile.max(1.2);
+        }
+        self.free_crew(&r.crew.clone());
+        self.free_crew(&r.resist.clone());
+        // those it's heading for see it coming: wide eyes, a hop
+        for &i in &s.sides[r.losers] {
+            let wk = self.walk_of(i);
+            if grounded(wk) {
+                wk.start_bob(tn().jump_height * 0.2);
+            }
+        }
+        r.phase = 4;
+        r.t = 0.0;
+    }
+
     /// Against the wall: it bursts into lumps and a heap of snow.
     fn burst_giant(&mut self, c: &Chat, s: &mut Snow, r: &Roll) {
         log::debug!("chat {}: the giant snowball bursts", c.id);
@@ -786,14 +800,6 @@ impl CharacterOverlay {
         // the ones it rolled over: up again in a moment, laughing it off
         for &i in &r.squashed {
             self.walk_of(i).smile = 2.0;
-        }
-        // the crew back in the fight, with a moment to catch their breath
-        for &i in &r.crew {
-            if let Some(h) = s.hands.iter_mut().find(|h| h.i == i) {
-                h.phase = 0;
-                h.t = -1.0;
-                h.rival = None;
-            }
         }
     }
 
