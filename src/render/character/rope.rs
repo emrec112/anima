@@ -703,12 +703,67 @@ vec4 confetti(vec2 p) {
     vec3 col = h > 0.85 ? vec3(1.0, 0.4, 0.6) : h > 0.75 ? vec3(0.4, 0.8, 1.0) : h > 0.65 ? vec3(1.0, 0.85, 0.3) : vec3(0.5, 0.95, 0.5);
     return vec4(col, on);
 }
+float snowseg(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+vec4 snowball(vec2 p) {
+    float a = 1.0 - smoothstep(0.88, 0.96, length(p));
+    // lit from the top left, bluish underneath
+    vec3 col = mix(vec3(0.72, 0.8, 0.95), vec3(1.0), clamp(0.55 + p.y * 0.35 - p.x * 0.2, 0.0, 1.0));
+    vec2 g = floor(p * 5.0);
+    float h = fract(sin(dot(g, vec2(27.1, 61.7))) * 4375.5);
+    col = mix(col, vec3(0.83, 0.89, 0.98), step(0.78, h) * 0.4);
+    return vec4(col, a);
+}
+vec4 snowman(vec2 p) {
+    // the box is 0.6 as wide as tall: q keeps the balls round
+    vec2 q = vec2(p.x * 0.6, p.y);
+    vec2 c0 = vec2(0.0, -0.58), c1 = vec2(0.0, -0.03), c2 = vec2(0.0, 0.47);
+    float body = max(max(disc(q, c0, 0.42), disc(q, c1, 0.31)), disc(q, c2, 0.23));
+    float lit = max(max(1.0 - length(q - c0 - vec2(-0.12, 0.13)) / 0.62, 1.0 - length(q - c1 - vec2(-0.09, 0.1)) / 0.46), 1.0 - length(q - c2 - vec2(-0.07, 0.07)) / 0.34);
+    vec3 col = mix(vec3(0.72, 0.8, 0.95), vec3(1.0), clamp(0.25 + lit * 0.9, 0.0, 1.0));
+    float a = body;
+    // twig arms
+    float arms = min(min(snowseg(q, vec2(0.25, 0.02), vec2(0.55, 0.24)), snowseg(q, vec2(0.46, 0.17), vec2(0.5, 0.3))),
+                     min(snowseg(q, vec2(-0.25, 0.02), vec2(-0.55, 0.22)), snowseg(q, vec2(-0.47, 0.16), vec2(-0.57, 0.27))));
+    float arm = 1.0 - smoothstep(0.012, 0.022, arms);
+    col = mix(col, vec3(0.42, 0.27, 0.15), arm * (1.0 - body));
+    a = max(a, arm);
+    // a red scarf round the neck, one end hanging
+    float scarf = max(bar(q, vec2(-0.2, 0.22), vec2(0.2, 0.29)), bar(q, vec2(0.08, 0.05), vec2(0.16, 0.25)));
+    col = mix(col, mix(vec3(0.85, 0.15, 0.2), vec3(0.95, 0.35, 0.35), step(0.5, fract(q.x * 12.0))), scarf);
+    a = max(a, scarf);
+    // coal eyes, mouth and buttons
+    float coal = max(disc(q, vec2(-0.075, 0.53), 0.03), disc(q, vec2(0.075, 0.53), 0.03));
+    for (int k = 0; k < 5; k++) {
+        float x = (float(k) - 2.0) * 0.045;
+        coal = max(coal, disc(q, vec2(x, 0.395 - 0.04 * (1.0 - abs(x) * 10.0)), 0.016));
+    }
+    coal = max(coal, max(disc(q, vec2(0.0, 0.06), 0.028), max(disc(q, vec2(0.0, -0.07), 0.028), disc(q, vec2(0.0, -0.4), 0.032))));
+    col = mix(col, vec3(0.12, 0.12, 0.15), coal);
+    // a carrot nose, pointing out to the side
+    float nx = clamp(q.x / 0.24, 0.0, 1.0);
+    float nose = step(0.0, q.x) * step(q.x, 0.24) * step(abs(q.y - 0.465 + nx * 0.03), 0.035 * (1.0 - nx));
+    col = mix(col, vec3(0.98, 0.55, 0.15), nose);
+    a = max(a, nose);
+    return vec4(col, a);
+}
+vec4 snowpuff(vec2 p) {
+    float a = disc(p, vec2(0.0), 0.32);
+    for (int k = 0; k < 7; k++) {
+        float ang = float(k) * 0.9 + 0.3;
+        a = max(a, disc(p, vec2(cos(ang), sin(ang)) * 0.58, 0.2));
+    }
+    return vec4(vec3(0.97, 0.98, 1.0), a * 0.9);
+}
 //SLIDE_TUBE
 
 void main() {
     vec2 p = v_pos;
     if (u_flip == 1) p.x = -p.x;
-    vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 100 ? picture(p) : carrot(p);
+    vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 43 ? snowball(p) : u_kind == 44 ? snowman(p) : u_kind == 45 ? snowpuff(p) : u_kind == 100 ? picture(p) : carrot(p);
     c.a *= u_opacity;
     c = apply_slide_tube(c, v_sclip);
     fragColor = vec4(c.rgb * c.a, c.a);

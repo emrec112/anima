@@ -62,6 +62,18 @@ tuning! {
         fish_wait_min: "Waiting for a bite, at least (s)" = 12.0, 0.5, 60.0, 0.5, 1;
         fish_wait_rand: "Random extra wait (s)" = 28.0, 0.0, 180.0, 0.5, 1;
     }
+    "Games", "Snowball fight" {
+        snow_min: "Fewest players" = 4.0, 2.0, 12.0, 1.0, 0;
+        snow_weight: "Picked this much more while it snows" = 3.0, 0.0, 20.0, 0.5, 1;
+        snow_time_min: "Longest time (s)" = 45.0, 10.0, 600.0, 5.0, 0;
+        snow_time_rand: "Random extra (s)" = 30.0, 0.0, 600.0, 5.0, 0;
+        snow_dodge: "Hops out of the way of a ball (share)" = 0.3, 0.0, 1.0, 0.05, 2;
+        snow_roll: "A few roll a big one (share of games)" = 0.6, 0.0, 1.0, 0.05, 2;
+        snow_roll_min: "Players needed for that" = 5.0, 3.0, 12.0, 1.0, 0;
+        snow_roll_speed: "Big ball rolls at (px/s)" = 45.0, 5.0, 300.0, 5.0, 0;
+        snow_big: "Big ball grows to (heights)" = 0.9, 0.2, 3.0, 0.05, 2;
+        snowman_stay: "Snowman stays (s)" = 900.0, 10.0, 7200.0, 30.0, 0;
+    }
     "Games", "Getting better" {
         skill_rate: "Learning per game played" = 0.1, 0.0, 1.0, 0.01, 2;
         skill_teach: "Learning from a better friend" = 0.15, 0.0, 1.0, 0.01, 2;
