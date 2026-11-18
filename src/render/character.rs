@@ -1651,8 +1651,8 @@ impl CharacterOverlay {
                 shown([x - r, l.y - r, x + r, l.y + r], l.owner)
             }))
             // rain or snow over everything: all of it changes
-            // (only when the sheet has moved on a frame, at its own lower rate)
-            .chain(self.weather_sheet().filter(|_| rope::sheet_moved()).map(|_| [0.0, 0.0, self.surface[0].max(1.0) * 4.0, self.surface[1].max(1.0) * 4.0]))
+            // (each flake or drop, only when they've moved on a frame, at their own lower rate)
+            .chain(self.weather_moved(self.surface[0].max(1.0), self.surface[1].max(1.0)))
             // the rope spans the gap between the two sides
             .chain(self.ropes_owned().into_iter().filter_map(|([x0, y0, x1, y1], o)| shown([x0, y0.min(y1) - 40.0, x1, y0.max(y1) + 40.0], o)))
             .chain(self.park_ropes().into_iter().filter_map(|([x0, y0, x1, y1], o, half, _)| shown([x0.min(x1) - 20.0 - half, y0.min(y1) - 20.0 - half, x0.max(x1) + 20.0 + half, y0.max(y1) + 20.0 + half], o)))

@@ -751,6 +751,16 @@ vec4 snowman(vec2 p) {
     a = max(a, nose);
     return vec4(col, a);
 }
+vec4 raindrop(vec2 p) {
+    // a thin streak, fading towards its top
+    float a = (1.0 - smoothstep(0.5, 1.0, abs(p.x))) * smoothstep(-1.0, 0.6, -p.y) * 0.55;
+    return vec4(vec3(0.75, 0.85, 1.0), a);
+}
+vec4 flake(vec2 p) {
+    // a soft round flake
+    float a = 1.0 - smoothstep(0.5, 1.0, length(p));
+    return vec4(vec3(1.0), a * 0.9);
+}
 vec4 snowpuff(vec2 p) {
     float a = disc(p, vec2(0.0), 0.32);
     for (int k = 0; k < 7; k++) {
@@ -765,7 +775,7 @@ void main() {
     if (u_hide.y != 0.0 && (v_sclip.x - u_hide.x) * u_hide.y > 0.0) discard;
     vec2 p = v_pos;
     if (u_flip == 1) p.x = -p.x;
-    vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 43 ? snowball(p) : u_kind == 44 ? snowman(p) : u_kind == 45 ? snowpuff(p) : u_kind == 100 ? picture(p) : carrot(p);
+    vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 43 ? snowball(p) : u_kind == 44 ? snowman(p) : u_kind == 45 ? snowpuff(p) : u_kind == 46 ? raindrop(p) : u_kind == 47 ? flake(p) : u_kind == 100 ? picture(p) : carrot(p);
     c.a *= u_opacity;
     c = apply_slide_tube(c, v_sclip);
     fragColor = vec4(c.rgb * c.a, c.a);
@@ -937,6 +947,15 @@ pub(super) fn sheet_frame() -> (i64, f32) {
     (step as i64, step / fps)
 }
 
+// how many flakes or drops are about at once
+const FLAKES: usize = 90;
+const DROPS: usize = 110;
+
+fn bit_hash(k: usize, salt: f32) -> f32 {
+    let x = (k as f32 * 12.9898 + salt * 78.233).sin() * 43758.547;
+    x - x.floor()
+}
+
 /// True once per new frame of the weather sheet: the whole screen changed.
 pub(super) fn sheet_moved() -> bool {
     let (step, _) = sheet_frame();
@@ -944,6 +963,49 @@ pub(super) fn sheet_moved() -> bool {
 }
 
 impl CharacterOverlay {
+    /// The flakes or drops of the whole-screen weather, at this frame of it:
+    /// prop kind and box (px) each, in a `w` x `h` screen.
+    pub(super) fn weather_bits(&self, w: f32, h: f32) -> Vec<(i32, [f32; 4])> {
+        self.weather_bits_at(w, h, sheet_frame().1)
+    }
+
+    /// Where they were and are now, when they've just moved on: both change.
+    pub(super) fn weather_moved(&self, w: f32, h: f32) -> Vec<[f32; 4]> {
+        if self.weather_sheet().is_none() || !sheet_moved() {
+            return Vec::new();
+        }
+        let t = sheet_frame().1;
+        let back = 1.0 / crate::render::tuning::get().weather_fps.max(1.0);
+        self.weather_bits_at(w, h, t).into_iter().chain(self.weather_bits_at(w, h, t - back)).map(|b| b.1).collect()
+    }
+
+    fn weather_bits_at(&self, w: f32, h: f32, t: f32) -> Vec<(i32, [f32; 4])> {
+        let Some(sheet) = self.weather_sheet() else { return Vec::new() };
+        let mut v = Vec::new();
+        if sheet == 41 {
+            // snow: drifting down slowly, swaying, three sizes for depth
+            for k in 0..FLAKES {
+                let depth = bit_hash(k, 1.0);
+                let size = 4.0 + depth * 8.0;
+                let fall = 30.0 + depth * 50.0;
+                let y = (bit_hash(k, 2.0) * (h + 40.0) + t * fall).rem_euclid(h + 40.0) - 20.0;
+                let x = bit_hash(k, 3.0) * w + (t * (0.5 + depth * 0.6) + k as f32).sin() * (10.0 + depth * 14.0);
+                v.push((47, [x - size * 0.5, y - size * 0.5, x + size * 0.5, y + size * 0.5]));
+            }
+        } else {
+            // rain: quick thin streaks, slanting a little
+            for k in 0..DROPS {
+                let depth = bit_hash(k, 4.0);
+                let len = 10.0 + depth * 14.0;
+                let fall = 500.0 + depth * 450.0;
+                let y = (bit_hash(k, 5.0) * (h + 60.0) + t * fall).rem_euclid(h + 60.0) - 30.0;
+                let x = (bit_hash(k, 6.0) * (w + 60.0) - t * fall * 0.08).rem_euclid(w + 60.0) - 30.0;
+                v.push((46, [x - 1.5, y - len * 0.5, x + 1.5, y + len * 0.5]));
+            }
+        }
+        v
+    }
+
     /// Rain or snow over the whole screen, if that's how the weather is shown.
     pub(super) fn weather_sheet(&self) -> Option<i32> {
         let sky = super::weather::now();
@@ -1057,9 +1119,10 @@ impl CharacterOverlay {
             let x = l.x - a.own_view[0] * self.view_w * 0.5;
             props.push((l.kind, [x - l.size[0] * 0.5, l.y - l.size[1] * 0.5, x + l.size[0] * 0.5, l.y + l.size[1] * 0.5], false, l.rot, z, l.image.clone()));
         }
-        // the weather over the whole screen, under everything else
-        if let Some(kind) = self.weather_sheet() {
-            props.insert(0, (kind, [0.0, 0.0, w, h], false, 0.0, None, None));
+        // the weather over the whole screen, under everything else: flakes
+        // or drops one by one (only their own pixels drawn, not the screen)
+        for (kind, rect) in self.weather_bits(w, h).into_iter().rev() {
+            props.insert(0, (kind, rect, false, 0.0, None, None));
         }
         if props.is_empty() {
             return;
@@ -1084,9 +1147,8 @@ impl CharacterOverlay {
         c.program.set_f32(gl, "u_opacity", 1.0);
         c.program.set_vec2(gl, "u_hide", 0.0, 0.0);
         for (kind, rect, flip, spin, zoom, image) in props {
-            // the weather sheet keeps to its own frame rate
             c.program.bind(gl);
-            c.program.set_f32(gl, "u_time", if matches!(kind, 40 | 41) { sheet_frame().1 } else { time });
+            c.program.set_f32(gl, "u_time", time);
             // the creature rising out of the ground says how far it's up in its kind
             let (kind, reveal) = if kind >= super::social::FOUND {
                 (kind, 1.0)
