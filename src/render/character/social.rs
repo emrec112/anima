@@ -276,6 +276,8 @@ struct Wrestle {
     push_target: f32,
     offset: f32,
     cheer_t: f32,
+    // a fan's happy moment and how long it has left (s)
+    glee: Vec<(usize, f32)>,
     arena_y: f32,
 }
 
@@ -3574,6 +3576,7 @@ impl CharacterOverlay {
             push_target: 0.0,
             offset: 0.0,
             cheer_t: 0.3,
+            glee: Vec::new(),
             arena_y,
         };
         self.wrestle_benches(&w, None);
@@ -3678,26 +3681,60 @@ impl CharacterOverlay {
             return;
         }
 
-        // spectators on either side hop & cheer while watching the duel
+        // a happy moment is just a moment: back to watching after it
+        for g in &mut w.glee {
+            g.1 -= dt;
+        }
+        for (i, _) in w.glee.iter().filter(|g| g.1 <= 0.0).copied().collect::<Vec<_>>() {
+            if let Some(r) = self.walk_of(i).social.as_mut() {
+                r.happy = false;
+            }
+        }
+        w.glee.retain(|g| g.1 > 0.0);
+
+        // everyone not in the ring, benches and those who came to watch, keeps
+        // its eyes on the duel and turns as it moves along
+        let duel = match w.pair {
+            Some((a, b)) if w.phase >= 1 => (self.strip_px(a) + self.strip_px(b)) * 0.5,
+            _ => w.mid + w.offset,
+        };
+        let watching: Vec<usize> = w.teams[0]
+            .iter()
+            .chain(w.teams[1].iter())
+            .chain(w.out[0].iter())
+            .chain(w.out[1].iter())
+            .copied()
+            .chain(c.watchers.iter().copied().filter(|&i| Some(i) != c.cheater && self.arrived(i)))
+            .filter(|&i| w.pair.is_none_or(|(a, b)| i != a && i != b))
+            .collect();
+        for &i in &watching {
+            let x = self.strip_px(i);
+            if (duel - x).abs() < w.unit * 0.15 {
+                continue;
+            }
+            if let Some(r) = self.walk_of(i).social.as_mut() {
+                if !r.moving && !r.flying && !r.stuck && !r.grabbed {
+                    r.face_left = duel < x;
+                }
+            }
+        }
+
+        // now and then one of them hops and cheers for a moment
         w.cheer_t -= dt;
         if w.cheer_t <= 0.0 {
             w.cheer_t = 0.45 + self.walk.rand() * 0.35;
-            let side = usize::from(self.walk.rand() < 0.5);
-            let fans: Vec<usize> = w.teams[side]
+            let fans: Vec<usize> = watching
                 .iter()
-                .chain(w.out[side].iter())
                 .copied()
-                .filter(|&i| {
-                    w.pair.is_none_or(|(a, b)| i != a && i != b)
-                        && self.walk_ref(i).social.is_some_and(|r| !r.moving && !r.flying && !r.stuck)
-                })
+                .filter(|&i| !w.glee.iter().any(|g| g.0 == i) && self.walk_ref(i).social.is_some_and(|r| !r.moving && !r.flying && !r.stuck))
                 .collect();
             if !fans.is_empty() {
                 let fan = fans[(self.walk.rand() * fans.len() as f32) as usize % fans.len()];
+                let secs = 1.0 + self.walk.rand();
+                w.glee.push((fan, secs));
                 let wk = self.walk_of(fan);
                 if let Some(r) = wk.social.as_mut() {
                     r.happy = true;
-                    r.face_left = side == 1;
                 }
                 if grounded(wk) {
                     let hop = tn().jump_height * (0.12 + wk.rand() * 0.1);

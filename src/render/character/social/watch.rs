@@ -38,7 +38,8 @@ impl CharacterOverlay {
             return;
         }
         for &w in &c.watchers.clone() {
-            if !fishing && Some(w) != c.cheater && self.arrived(w) {
+            // wrestling turns its watchers to the duel itself
+            if !fishing && c.stage != Stage::Wrestle && Some(w) != c.cheater && self.arrived(w) {
                 self.face(w, c.talker);
                 if self.walk.rand() < 0.03 {
                     self.walk_of(w).start_bob(tn().jump_height * 0.1);
