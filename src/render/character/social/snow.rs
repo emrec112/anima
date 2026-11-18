@@ -29,9 +29,10 @@ pub(super) struct Thrower {
     // running after someone, and for how long so far
     chase: Option<usize>,
     chase_t: f32,
-    // running away from someone; which way it's going
+    // running away from someone; which way it's going, and for how long
     fleeing: bool,
     flee_dir: f32,
+    flee_t: f32,
 }
 
 /// A snowball in the air: strip x and screen y it left from and is going to.
@@ -150,7 +151,7 @@ impl CharacterOverlay {
 
     fn thrower(&mut self, i: usize, t: f32) -> Thrower {
         let patience = tn().snow_stay_min + self.walk.rand() * tn().snow_stay_rand;
-        Thrower { i, phase: 0, t, ball: 0.0, target: i, patience, chase: None, chase_t: 0.0, fleeing: false, flee_dir: 1.0 }
+        Thrower { i, phase: 0, t, ball: 0.0, target: i, patience, chase: None, chase_t: 0.0, fleeing: false, flee_dir: 1.0, flee_t: 0.0 }
     }
 
     /// Free to start or join a snowball fight (or a snowman).
@@ -310,6 +311,10 @@ impl CharacterOverlay {
     /// Patience runs down (faster once the snow stops, or it's gone on very
     /// long); whoever's had enough, between throws, goes off happy.
     fn snow_tired(&mut self, c: &mut Chat, s: &mut Snow, dt: f32) {
+        // nobody wanders off while the giant snowball's under way
+        if s.roll.is_some() {
+            return;
+        }
         let rate = if !super::super::weather::now().snow || c.timer <= 0.0 { 4.0 } else { 1.0 };
         let mut done = Vec::new();
         for h in &mut s.hands {
@@ -382,13 +387,13 @@ impl CharacterOverlay {
         let (x, tx) = (self.strip_px(i), self.strip_px(target));
         let dir = if tx < x { -1.0 } else { 1.0 };
         let from = [x + dir * self.width_of(i) * 0.28, r[1] + hh * 0.45];
-        // aimed a little ahead of someone on the run
-        let lead = self.walk_ref(target).social.filter(|r| r.moving).map_or(0.0, |r| (r.goal_px - tx).signum() * self.width_of(target) * 0.4);
+        let dur = (0.35 + (tx - x).abs() / 900.0).clamp(0.3, 1.2);
+        // aimed ahead of someone on the run, by how fast it's going
+        let lead = self.walk_ref(target).social.filter(|r| r.moving).map_or(0.0, |r| (r.goal_px - tx).signum() * r.speed * self.view_w * 0.5 * dur);
         let to = [tx + lead, tr[1] + th * 0.45];
-        let dur = (0.45 + (tx - x).abs() / 900.0).clamp(0.4, 1.2);
-        let close = (tx - x).abs() < self.width_of(i) * 3.0;
+        let close = (tx - x).abs() < hh * 1.2;
         let knack = self.skilled(target, "snowball fight", 0.6, 1.4);
-        let dodge = self.walk.rand() < tn().snow_dodge * knack * if close { 0.4 } else { 1.0 };
+        let dodge = !close && self.walk.rand() < tn().snow_dodge * knack;
         s.balls.push(Flying { by: i, target: Some(target), from, to, t: 0.0, dur, dodge, size: 1.0 });
         self.walk_of(i).start_bob(tn().jump_height * 0.12);
     }
@@ -411,14 +416,41 @@ impl CharacterOverlay {
                 let near = chasers.iter().map(|&o| self.strip_px(o)).min_by(|a, b| (a - x).abs().total_cmp(&(b - x).abs())).unwrap_or(x);
                 if !h.fleeing {
                     h.fleeing = true;
+                    h.flee_t = 0.0;
+                    h.flee_dir = if near < x { 1.0 } else { -1.0 };
+                    // seen them coming: a startled hop, and off
+                    let wk = self.walk_of(i);
+                    wk.start_bob(tn().jump_height * 0.25);
+                    wk.smile = wk.smile.max(1.0);
+                }
+                h.flee_t += dt;
+                // away from whoever's nearest (unless it's slipping past them just now)
+                if h.flee_t >= 0.0 {
                     h.flee_dir = if near < x { 1.0 } else { -1.0 };
                 }
-                // at the end of the field: dodges back past them
-                if (h.flee_dir > 0.0 && x > s.hi - size) || (h.flee_dir < 0.0 && x < s.lo + size) {
+                // away from them, to the back of its own end and no further
+                let edge = self.height_of(i) * 0.5;
+                let wall = if h.flee_dir > 0.0 { s.hi + edge } else { s.lo - edge };
+                let cornered = (wall - x) * h.flee_dir < edge * 0.5;
+                let close = (near - x).abs() < self.height_of(i) * 1.2;
+                // backed into the corner with them right there: a dash past them, now and then
+                if cornered && close && h.flee_t > 0.6 && self.walk.rand() < dt * 1.5 {
                     h.flee_dir = -h.flee_dir;
+                    h.flee_t = -0.7;
+                    log::debug!("chat {}: {i} slips past", c.id);
                 }
-                let goal = (x + h.flee_dir * size * 2.0).clamp(s.lo, s.hi);
-                self.steer(i, goal, 0.24);
+                // flat out at first, then it tires
+                let pace = if h.flee_t < 1.2 { tn().snow_flee_speed } else { tn().snow_flee_speed * 0.65 };
+                let wall = if h.flee_dir > 0.0 { s.hi + edge } else { s.lo - edge };
+                let step = x + h.flee_dir * size * 2.0;
+                let goal = if h.flee_dir > 0.0 { step.min(wall) } else { step.max(wall) };
+                self.steer(i, goal, pace);
+                if cornered && !close {
+                    // waiting in the corner, wary
+                    if let Some(r) = self.walk_of(i).social.as_mut() {
+                        r.face_left = near < x;
+                    }
+                }
                 s.hands[k] = h;
                 continue;
             }
@@ -434,12 +466,14 @@ impl CharacterOverlay {
                 h.chase_t += dt;
                 let gone = !c.members.contains(&t) || Self::side_of(s, t) != Some(1 - side) || self.walk_ref(t).flat > 0.0;
                 let tx = self.strip_px(t);
-                if gone || h.chase_t > 5.0 {
+                // close enough to see the whites of its eyes (the box is wider than the body)
+                let reach = self.height_of(i) * 0.6;
+                if gone {
                     h.chase = None;
                     let (a, b) = Self::snow_zone(s, side);
                     let goal = a + self.walk.rand() * (b - a);
                     self.steer(i, goal, 0.18);
-                } else if (tx - x).abs() < size * 2.2 && grounded(self.walk_ref(i)) {
+                } else if ((tx - x).abs() < reach || h.chase_t > 6.0) && grounded(self.walk_ref(i)) {
                     self.face(i, t);
                     self.snow_throw(s, i, t);
                     h.chase = None;
@@ -450,8 +484,9 @@ impl CharacterOverlay {
                     let goal = a + self.walk.rand() * (b - a);
                     self.steer(i, goal, 0.16);
                 } else {
-                    let behind = if tx > x { -1.0 } else { 1.0 };
-                    self.steer(i, tx + behind * size * 1.5, 0.26);
+                    // right up to it, faster than it can run
+                    let ahead = if tx > x { 1.0 } else { -1.0 };
+                    self.steer(i, tx + ahead * size * 0.5, tn().snow_chase_speed);
                 }
                 s.hands[k] = h;
                 continue;
@@ -678,7 +713,7 @@ impl CharacterOverlay {
                 let crew = r.crew.len() as f32;
                 let speed = tn().snow_roll_speed * (1.0 - 0.45 * (r.size / biggest).min(1.0)) * (0.8 + 0.2 * crew.min(3.0));
                 r.x += r.dir * speed * dt;
-                r.size = (r.size + speed * dt * 0.07).min(biggest);
+                r.size = (r.size + speed * dt * tn().snow_grow).min(biggest);
                 self.push_along(&r.crew.clone(), r.dir, |k| behind(&r, k, r.dir), dt);
                 if r.size >= biggest {
                     // big enough: turned to face the other side, ready to send off

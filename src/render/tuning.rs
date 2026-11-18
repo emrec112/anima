@@ -71,11 +71,14 @@ tuning! {
         snow_again: "Won't start another for (s)" = 150.0, 0.0, 3600.0, 10.0, 0;
         snow_longest: "Winds down after (s)" = 360.0, 30.0, 3600.0, 10.0, 0;
         snow_dodge: "Hops out of the way of a ball (share)" = 0.3, 0.0, 1.0, 0.05, 2;
-        snow_chase: "Runs after someone instead of throwing from afar (share)" = 0.25, 0.0, 1.0, 0.05, 2;
+        snow_chase: "Runs after someone instead of throwing from afar (share)" = 0.35, 0.0, 1.0, 0.05, 2;
+        snow_chase_speed: "Running after someone at" = 0.4, 0.05, 2.0, 0.01, 2;
+        snow_flee_speed: "Running away at (flat out, it tires after)" = 0.3, 0.05, 2.0, 0.01, 2;
         snow_roll_rate: "Someone starts a giant snowball (per s)" = 0.02, 0.0, 1.0, 0.01, 2;
         snow_roll_min: "Players needed for that" = 2.0, 2.0, 30.0, 1.0, 0;
         snow_help: "Someone from its side comes to help roll it (per s)" = 0.15, 0.0, 2.0, 0.01, 2;
-        snow_roll_speed: "Giant ball rolls up at (px/s)" = 45.0, 5.0, 300.0, 5.0, 0;
+        snow_roll_speed: "Giant ball rolls up at (px/s)" = 70.0, 5.0, 300.0, 5.0, 0;
+        snow_grow: "Giant ball grows (px wider per px rolled)" = 0.3, 0.01, 2.0, 0.01, 2;
         snow_big: "Giant ball grows to (heights)" = 1.8, 0.3, 4.0, 0.05, 2;
         snow_resist: "The other side runs over to push it back (share)" = 0.5, 0.0, 1.0, 0.05, 2;
         snow_giant_speed: "Sent off, it rolls at (px/s)" = 380.0, 50.0, 2000.0, 10.0, 0;
