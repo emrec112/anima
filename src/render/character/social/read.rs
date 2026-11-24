@@ -253,32 +253,21 @@ impl CharacterOverlay {
             c.stage = Stage::Part;
             return;
         }
+        self.hold_books(&r);
         c.read = Some(r);
     }
 
-    /// The books in hand: held up in front, shut while being taken out or put away.
-    pub(super) fn read_props(&self, v: &mut Vec<(i32, [f32; 4], bool, usize)>) {
-        for c in self.chats.iter().filter(|c| c.stage == Stage::Read) {
-            let Some(r) = c.read.as_ref() else { continue };
-            for a in &r.readers {
-                if a.phase == 0 || !self.arrived(a.i) || self.walk_ref(a.i).act != Act::Idle {
-                    continue;
-                }
-                let Some(rect) = (if a.i == 0 { Some(self.hit_rect) } else { self.extras.get(a.i - 1).map(|e| e.hit_rect) }) else { continue };
-                let h = rect[3] - rect[1];
-                if h <= 0.0 {
-                    continue;
-                }
-                let open = a.phase == 2 || (a.phase == 1 && a.t >= HANDLE * 0.5) || (a.phase == 3 && a.t < HANDLE * 0.5);
-                // its own colour, the same every time
-                let colour = self.character_name(a.i).bytes().fold(0usize, |s, b| s.wrapping_mul(31).wrapping_add(b as usize)) % 4;
-                // held up in front, hiding most of the body below the face
-                let (half_w, half_h) = if open { (h * 0.3, h * 0.15) } else { (h * 0.12, h * 0.15) };
-                let x = (rect[0] + rect[2]) * 0.5;
-                let y = rect[1] + h * 0.7;
-                let kind = if open { BOOK_OPEN[colour] } else { BOOK_SHUT[colour] };
-                v.push((kind, [x - half_w, y - half_h, x + half_w, y + half_h], false, a.i));
+    /// The books in hand this frame, drawn with the sprite (see `wear::book_worn`).
+    fn hold_books(&mut self, r: &Read) {
+        for a in &r.readers {
+            if a.phase == 0 || !self.arrived(a.i) || self.walk_ref(a.i).act != Act::Idle {
+                continue;
             }
+            let open = a.phase == 2 || (a.phase == 1 && a.t >= HANDLE * 0.5) || (a.phase == 3 && a.t < HANDLE * 0.5);
+            // its own colour, the same every time
+            let colour = self.character_name(a.i).bytes().fold(0usize, |s, b| s.wrapping_mul(31).wrapping_add(b as usize)) % 4;
+            let kind = if open { BOOK_OPEN[colour] } else { BOOK_SHUT[colour] };
+            self.walk_of(a.i).book = Some((kind, open));
         }
     }
 }

@@ -228,6 +228,7 @@ uniform vec4 u_crop;     // the part of the picture used: x, y, width, height (0
 uniform float u_reveal;  // shown from the bottom up to this share (rising out of the ground)
 uniform float u_time;
 uniform float u_saspect; // screen width / height
+uniform float u_asp;     // the box's own width / height when worn (0: work it out)
 uniform float u_opacity;
 float hash1(float x) { return fract(sin(x * 127.1) * 43758.5453); }
 float blade(vec2 p, float x, float lean) {
@@ -843,7 +844,7 @@ void main() {
     if (u_hide.y != 0.0 && (v_sclip.x - u_hide.x) * u_hide.y > 0.0) discard;
     vec2 p = v_pos;
     if (u_flip == 1) p.x = -p.x;
-    float asp = (u_rect.z - u_rect.x) / max(u_rect.w - u_rect.y, 1e-4) * u_saspect;
+    float asp = u_asp > 0.0 ? u_asp : (u_rect.z - u_rect.x) / max(u_rect.w - u_rect.y, 1e-4) * u_saspect;
     vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 43 ? snowball(p) : u_kind == 44 ? snowman(p) : u_kind == 45 ? snowpuff(p) : u_kind == 46 ? raindrop(p) : u_kind == 47 ? flake(p) : u_kind == 48 || (u_kind >= 50 && u_kind <= 52) ? book_back(p, book_color(u_kind), asp) : u_kind == 49 || (u_kind >= 53 && u_kind <= 55) ? book_shut(p, book_color(u_kind), asp) : u_kind == 100 ? picture(p) : carrot(p);
     c.a *= u_opacity;
     c = apply_slide_tube(c, v_sclip);
@@ -1153,6 +1154,9 @@ impl CharacterOverlay {
                 kind = 100;
             }
             c.program.set_vec4(gl, "u_sub", w.rect);
+            let [x0, y0, x1, y1] = w.rect;
+            let box_h = (y1 - y0) * pose.half[1] * pose.size[1];
+            c.program.set_f32(gl, "u_asp", if box_h > 0.0 { (x1 - x0) * pose.half[0] * pose.size[0] / box_h } else { 0.0 });
             c.program.set_f32(gl, "u_turn", w.turn);
             c.program.set_i32(gl, "u_kind", kind);
             c.program.set_i32(gl, "u_flip", i32::from(w.flip));
@@ -1171,6 +1175,7 @@ impl CharacterOverlay {
             }
         }
         c.program.set_i32(gl, "u_attach", 0);
+        c.program.set_f32(gl, "u_asp", 0.0);
     }
 
     pub(super) fn draw_carrot(&mut self, gl: &glow::Context, info: &FrameInfo, target: &mut dyn ActorTarget) {

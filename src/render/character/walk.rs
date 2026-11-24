@@ -156,6 +156,8 @@ pub(super) struct WalkState {
     pub(super) snow_cool: f32,
     // just put a book away: not another one for a while (s)
     pub(super) read_cool: f32,
+    // a book in its hands this frame: drawn kind, and whether it's open
+    pub(super) book: Option<(i32, bool)>,
     // rolled over by a giant snowball: flat as a pancake for this long (s)
     pub(super) flat: f32,
     pub(super) shake: f32,

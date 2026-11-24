@@ -591,6 +591,29 @@ impl CharacterOverlay {
     }
 
     pub(super) fn worn(&self) -> Vec<Worn> {
+        let mut v = self.worn_things();
+        // a book held up in front goes over everything else
+        if let Some(b) = self.walk.book.and_then(|(kind, open)| self.book_worn(kind, open)) {
+            v.push(b);
+        }
+        v
+    }
+
+    /// A book held open in front of the body (the face peeking over it), or
+    /// shut while it's taken out: in sprite space, so it breathes, leans and
+    /// hops with it.
+    fn book_worn(&self, kind: i32, open: bool) -> Option<Worn> {
+        let (w, h) = (self.pose.half[0] * self.pose.size[0], self.pose.half[1] * self.pose.size[1]);
+        if w <= 0.0 || h <= 0.0 {
+            return None;
+        }
+        // box half-sizes as shares of the sprite's height, centred 0.7 down it
+        let half_w = if open { 0.3 } else { 0.12 } * 2.0 * h / w;
+        let (mid, half_h) = (-0.4, 0.3);
+        Some(Worn { id: String::new(), kind, rect: [-half_w, mid - half_h, half_w, mid + half_h], turn: 0.0, flip: false, behind: false, image: None })
+    }
+
+    fn worn_things(&self) -> Vec<Worn> {
         let Some(a) = self.pose_anchors() else { return Vec::new() };
         let flip = self.pose.flip;
         let (hw, hh) = (a.head[2] - a.head[0], a.head[3] - a.head[1]);

@@ -834,6 +834,8 @@ impl CharacterOverlay {
             wk.fish_cool = (wk.fish_cool - dt).max(0.0);
             wk.snow_cool = (wk.snow_cool - dt).max(0.0);
             wk.read_cool = (wk.read_cool - dt).max(0.0);
+            // reading puts it back in its hands each frame
+            wk.book = None;
             // flattened: back up with a pop once it's over
             if wk.flat > 0.0 {
                 wk.flat -= dt;
@@ -4700,7 +4702,6 @@ impl CharacterOverlay {
             v.push((0, [x - size * 0.5, top, x + size * 0.5, top + size], false, b.giver));
         }
         self.snow_props(&mut v);
-        self.read_props(&mut v);
         self.hide_props(&mut v);
         self.mood_props(&mut v);
         // a picture in place of a drawn thing fills the box's width at its own shape
