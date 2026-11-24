@@ -8,9 +8,10 @@ use super::super::walk::Act;
 use super::*;
 use crate::render::tuning::get as tn;
 
-/// Picture kinds: the book open, and shut (taking it out, putting it away).
-pub(super) const BOOK_OPEN: i32 = 48;
-pub(super) const BOOK_SHUT: i32 = 49;
+/// Drawn kinds, one book colour each (red, blue, green, purple): held open,
+/// and shut (taking it out, putting it away).
+const BOOK_OPEN: [i32; 4] = [48, 50, 51, 52];
+const BOOK_SHUT: [i32; 4] = [49, 53, 54, 55];
 
 // taking the book out or putting it away (s)
 const HANDLE: f32 = 0.6;
@@ -268,13 +269,15 @@ impl CharacterOverlay {
                 if h <= 0.0 {
                     continue;
                 }
-                let left = self.walk_ref(a.i).social.is_some_and(|s| s.face_left);
-                let dir = if left { -1.0 } else { 1.0 };
                 let open = a.phase == 2 || (a.phase == 1 && a.t >= HANDLE * 0.5) || (a.phase == 3 && a.t < HANDLE * 0.5);
-                let size = h * if open { 0.34 } else { 0.26 };
-                let x = (rect[0] + rect[2]) * 0.5 + dir * h * 0.14;
-                let y = rect[1] + h * 0.6;
-                v.push((if open { BOOK_OPEN } else { BOOK_SHUT }, [x - size * 0.5, y - size * 0.5, x + size * 0.5, y + size * 0.5], false, a.i));
+                // its own colour, the same every time
+                let colour = self.character_name(a.i).bytes().fold(0usize, |s, b| s.wrapping_mul(31).wrapping_add(b as usize)) % 4;
+                // held up in front, hiding most of the body below the face
+                let (half_w, half_h) = if open { (h * 0.3, h * 0.15) } else { (h * 0.12, h * 0.15) };
+                let x = (rect[0] + rect[2]) * 0.5;
+                let y = rect[1] + h * 0.7;
+                let kind = if open { BOOK_OPEN[colour] } else { BOOK_SHUT[colour] };
+                v.push((kind, [x - half_w, y - half_h, x + half_w, y + half_h], false, a.i));
             }
         }
     }

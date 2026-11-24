@@ -344,18 +344,73 @@ vec4 note(vec2 p) {
     float flag = bar(p, vec2(-0.02, 0.52), vec2(0.5, 0.78));
     return vec4(vec3(1.0, 0.86, 0.35), max(max(head, stem), flag));
 }
-vec4 book(vec2 p, bool open) {
-    // open: two pale pages on a blue cover; shut: the cover, pages at the edge
-    if (open) {
-        float cover = bar(p, vec2(-0.95, -0.62), vec2(0.95, 0.5));
-        float pages = max(bar(p, vec2(-0.86, -0.5), vec2(-0.04, 0.62)), bar(p, vec2(0.04, -0.5), vec2(0.86, 0.62)));
-        vec3 col = pages > 0.0 ? vec3(0.95, 0.94, 0.98) : vec3(0.25, 0.6, 0.95);
-        return vec4(col, max(cover, pages));
+// books, one colour per reader: 48-52 open, 49 and 53-55 shut
+vec3 book_color(int k) {
+    return (k == 50 || k == 53) ? vec3(0.17, 0.3, 0.62) : (k == 51 || k == 54) ? vec3(0.16, 0.48, 0.32) : (k == 52 || k == 55) ? vec3(0.45, 0.24, 0.6) : vec3(0.68, 0.17, 0.2);
+}
+// a round spot that stays round in a box that isn't square (asp: its width / height)
+float edisc(vec2 p, vec2 c, float r, float asp) {
+    vec2 d = (p - c) * vec2(asp, 1.0);
+    return 1.0 - smoothstep(r - 0.025, r + 0.01, length(d));
+}
+float book_frame(vec2 p, float cx, float w, float h) {
+    float d = max(abs(p.x - cx) - w, abs(p.y) - h);
+    return step(d, 0.0) * (1.0 - step(d, -0.035));
+}
+// a hand round each side, fingers on the cover we see
+vec4 book_hands(vec2 p, vec4 c, float asp) {
+    vec3 skin = vec3(1.0, 0.87, 0.78);
+    float hand = 0.0;
+    float inner = 0.0;
+    for (int s = -1; s <= 1; s += 2) {
+        float sx = float(s);
+        hand = max(hand, edisc(p, vec2(sx * 0.9, -0.1), 0.2, asp));
+        inner = max(inner, edisc(p, vec2(sx * 0.9, -0.1), 0.15, asp));
+        for (int k = 0; k < 3; k++) {
+            vec2 f = vec2(sx * 0.8, 0.14 - float(k) * 0.17);
+            hand = max(hand, edisc(p, f, 0.1, asp));
+            inner = max(inner, edisc(p, f, 0.06, asp));
+        }
     }
-    float cover = bar(p, vec2(-0.62, -0.82), vec2(0.62, 0.82));
-    float edge = bar(p, vec2(0.48, -0.74), vec2(0.6, 0.74));
-    vec3 col = edge > 0.0 ? vec3(0.95, 0.94, 0.98) : vec3(0.85, 0.25, 0.3);
-    return vec4(col, cover);
+    vec3 col = mix(skin * vec3(0.86, 0.72, 0.66), skin, inner);
+    return vec4(mix(c.rgb, col, hand), max(c.a, hand));
+}
+// held open in front of it: both covers towards us, the spine in the middle,
+// the far edges a little shorter
+vec4 book_back(vec2 p, vec3 cover, float asp) {
+    float ax = abs(p.x);
+    float hh = mix(0.8, 0.64, clamp(ax / 0.86, 0.0, 1.0));
+    float d = max(ax - 0.86, abs(p.y) - hh);
+    float body = 1.0 - smoothstep(-0.015, 0.015, d);
+    // the tops of the pages in the fold, fanning out towards the edges
+    float top = hh + 0.03 + 0.1 * ax;
+    float pages = step(0.05, ax) * step(ax, 0.82) * step(0.0, p.y) * (1.0 - smoothstep(top - 0.015, top + 0.015, p.y));
+    vec3 col = cover * (0.7 + 0.34 * ax / 0.86) * (0.92 + 0.08 * p.y);
+    vec3 gold = vec3(0.96, 0.8, 0.38);
+    col = mix(col, gold, book_frame(vec2(ax, p.y), 0.47, 0.31, hh - 0.1));
+    float spine = 1.0 - smoothstep(0.045, 0.065, ax);
+    col = mix(col, cover * 0.5, spine);
+    col = mix(col, gold, spine * step(abs(abs(p.y) - 0.55), 0.04));
+    // the front cover, to our right: a little emblem
+    float ring = edisc(p, vec2(0.47, 0.02), 0.2, asp) - edisc(p, vec2(0.47, 0.02), 0.13, asp);
+    float dot = edisc(p, vec2(0.47, 0.02), 0.07, asp);
+    col = mix(col, gold, clamp(ring + dot, 0.0, 1.0) * step(0.0, p.x));
+    vec3 c = body > 0.5 ? col : vec3(0.97, 0.94, 0.86) * (0.92 + 0.08 * ax);
+    return book_hands(p, vec4(c, max(body, pages)), asp);
+}
+// shut, front cover towards us: being taken out or put away
+vec4 book_shut(vec2 p, vec3 cover, float asp) {
+    float d = max(abs(p.x) - 0.72, abs(p.y) - 0.85);
+    float body = 1.0 - smoothstep(-0.015, 0.015, d);
+    vec3 gold = vec3(0.96, 0.8, 0.38);
+    vec3 col = cover * (0.85 + 0.15 * p.y);
+    col = mix(col, gold, book_frame(p, 0.05, 0.55, 0.72));
+    // the spine down the left, the pages at the right edge
+    col = mix(col, cover * 0.55, 1.0 - smoothstep(-0.62, -0.58, p.x));
+    col = mix(col, vec3(0.97, 0.94, 0.86), smoothstep(0.62, 0.65, p.x) * step(abs(p.y), 0.8));
+    float ring = edisc(p, vec2(0.05, 0.1), 0.34, asp) - edisc(p, vec2(0.05, 0.1), 0.24, asp);
+    col = mix(col, gold, clamp(ring + edisc(p, vec2(0.05, 0.1), 0.12, asp), 0.0, 1.0));
+    return vec4(col, body);
 }
 vec4 rod(vec2 p) {
     // bottom left (the hand) to top right (the tip)
@@ -788,7 +843,8 @@ void main() {
     if (u_hide.y != 0.0 && (v_sclip.x - u_hide.x) * u_hide.y > 0.0) discard;
     vec2 p = v_pos;
     if (u_flip == 1) p.x = -p.x;
-    vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 43 ? snowball(p) : u_kind == 44 ? snowman(p) : u_kind == 45 ? snowpuff(p) : u_kind == 46 ? raindrop(p) : u_kind == 47 ? flake(p) : u_kind == 48 ? book(p, true) : u_kind == 49 ? book(p, false) : u_kind == 100 ? picture(p) : carrot(p);
+    float asp = (u_rect.z - u_rect.x) / max(u_rect.w - u_rect.y, 1e-4) * u_saspect;
+    vec4 c = u_kind == 1 ? box(p) : u_kind == 2 ? balloon(p) : u_kind == 3 ? glove(p) : u_kind == 4 ? zee(p) : u_kind == 5 ? sweat(p) : u_kind == 6 ? crumb(p) : u_kind == 7 ? marker(p) : u_kind == 8 ? blindfold(p) : u_kind == 9 ? bush(p) : u_kind == 10 ? barrel(p) : u_kind == 11 ? crate_box(p) : u_kind == 12 ? note(p) : u_kind == 13 ? rod(p) : u_kind == 14 ? line_float(p) : u_kind == 15 ? star(p) : u_kind == 16 ? duck(p) : u_kind == 17 ? boot(p) : u_kind == 18 ? can(p) : u_kind == 20 ? confetti(p) : u_kind == 21 ? beast(p) : u_kind == 22 ? umbrella(p) : u_kind == 23 ? snowflake(p) : u_kind == 24 ? snowpile(p) : u_kind == 25 ? santa(p) : u_kind == 26 ? sleepmask(p) : u_kind == 27 ? partyhat(p) : u_kind == 28 ? tophat(p) : u_kind == 29 ? bigbow(p) : u_kind == 30 ? glasses(p, false) : u_kind == 31 ? glasses(p, true) : u_kind == 32 ? flower(p) : u_kind == 33 ? scarf(p) : u_kind == 34 ? backpack(p) : u_kind == 35 ? wings(p) : u_kind == 36 ? headphones(p) : u_kind == 37 ? crown(p) : u_kind == 38 ? canopy(p) : u_kind == 39 ? shaft(p) : u_kind == 40 ? rainfall(p) : u_kind == 41 ? snowfall(p) : u_kind == 42 ? furled(p) : u_kind == 43 ? snowball(p) : u_kind == 44 ? snowman(p) : u_kind == 45 ? snowpuff(p) : u_kind == 46 ? raindrop(p) : u_kind == 47 ? flake(p) : u_kind == 48 || (u_kind >= 50 && u_kind <= 52) ? book_back(p, book_color(u_kind), asp) : u_kind == 49 || (u_kind >= 53 && u_kind <= 55) ? book_shut(p, book_color(u_kind), asp) : u_kind == 100 ? picture(p) : carrot(p);
     c.a *= u_opacity;
     c = apply_slide_tube(c, v_sclip);
     fragColor = vec4(c.rgb * c.a, c.a);
@@ -934,8 +990,6 @@ pub(super) fn prop_image(kind: i32) -> Option<std::path::PathBuf> {
         34 => "backpack",
         36 => "headphones",
         37 => "crown",
-        48 => "book_open",
-        49 => "book",
         _ => return None,
     };
     type Seen = (Option<Instant>, std::collections::HashSet<String>);
