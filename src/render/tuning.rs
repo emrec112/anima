@@ -90,6 +90,18 @@ tuning! {
         snowman_stay: "Snowman stays (s)" = 900.0, 10.0, 7200.0, 30.0, 0;
         snowman_dress_every: "A passer-by puts something on one within about (s)" = 90.0, 5.0, 3600.0, 5.0, 0;
     }
+    "Roaming", "Reading" {
+        read_bored: "Idle before taking out a book (s)" = 30.0, 0.0, 1800.0, 5.0, 0;
+        read_every: "Then reads within about (s, book lovers sooner)" = 300.0, 5.0, 3600.0, 5.0, 0;
+        read_min: "Reads at least (s)" = 30.0, 5.0, 1800.0, 5.0, 0;
+        read_max: "Reads at most (s)" = 120.0, 5.0, 3600.0, 5.0, 0;
+        read_join: "A passer-by comes to read beside them (per s)" = 0.04, 0.0, 2.0, 0.01, 2;
+        read_most: "Most reading together" = 3.0, 1.0, 12.0, 1.0, 0;
+        read_laugh_every: "Laughs at the book about every (s)" = 18.0, 2.0, 600.0, 1.0, 0;
+        read_laugh_len: "A laugh lasts (s)" = 1.8, 0.3, 10.0, 0.1, 1;
+        read_sync: "The one beside laughs along (share)" = 0.45, 0.0, 1.0, 0.05, 2;
+        read_again: "Won't read again for (s)" = 420.0, 0.0, 7200.0, 10.0, 0;
+    }
     "Games", "Hide and seek" {
         hide_min: "Fewest players" = 3.0, 2.0, 12.0, 1.0, 0;
         hide_time: "Longest time (s)" = 90.0, 15.0, 600.0, 5.0, 0;
