@@ -973,7 +973,11 @@ impl App {
         let interval = Duration::from_secs_f64(1.0 / self.effective_fps(idx) as f64);
         let due = self.outputs[idx].last_render + interval;
         let now = Instant::now();
-        if now < due {
+        // the compositor's frame callbacks wobble a little: one that comes
+        // just short of the interval is still this frame, not a reason to
+        // wait and miss the screen's refresh
+        let slack = Duration::from_micros(2500).min(interval / 2);
+        if now + slack < due {
             self.outputs[idx].due_at = Some(due);
             return;
         }
@@ -990,6 +994,8 @@ impl App {
         if self.outputs[idx].gl.is_none() {
             return false;
         }
+        // frames are paced from when drawing starts, not when it's done
+        let frame_start = Instant::now();
         self.arm_frame(idx);
 
         let audio_snap = self.audio.snapshot();
@@ -1061,7 +1067,7 @@ impl App {
                     if let Err(err) = gl_surface.swap_buffers(ctx) {
                         log::warn!("monitor {name}: swap failed: {err}");
                     }
-                    oc.last_render = Instant::now();
+                    oc.last_render = frame_start;
                     oc.frames += 1;
                     keep_going
                 }
@@ -1171,7 +1177,7 @@ impl App {
         }
 
         if skip_wallpaper && keep_going {
-            oc.last_render = Instant::now();
+            oc.last_render = frame_start;
             oc.frames += 1;
         }
         // frame rate, for tuning (RUST_LOG=anima::backend::wayland=debug)
