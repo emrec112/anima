@@ -377,7 +377,7 @@ tuning! {
         encore_energy: "Extra chance from energy" = 0.65, 0.0, 1.0, 0.05, 2;
         encore_show: "Holds up the next game for (s)" = 2.5, 0.5, 10.0, 0.5, 1;
         max_games: "Most games per group" = 2.0, 1.0, 7.0, 1.0, 0;
-        party_min: "Fewest for domino and tag" = 4.0, 2.0, 12.0, 1.0, 0;
+        party_min: "Fewest for domino" = 4.0, 2.0, 12.0, 1.0, 0;
         after_game_min: "Chat after a game (s)" = 6.0, 0.0, 60.0, 1.0, 0;
         after_game_rand: "Random extra chat (s)" = 5.0, 0.0, 60.0, 1.0, 0;
         cheer_time: "Winner celebrates (s)" = 3.0, 0.0, 30.0, 0.5, 1;

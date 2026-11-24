@@ -62,9 +62,28 @@ impl CharacterOverlay {
         if Self::snowmen_on(chats, ws) >= tn().snowman_most as usize {
             return None;
         }
+        Some(self.snowman_start(i))
+    }
+
+    /// Asked for by hand: whoever is free nearest the middle of the screen
+    /// starts one, snow or not.
+    pub(super) fn snowman_now(&mut self, chats: &[Chat], n: usize) -> Option<Chat> {
+        let middle = self.view[0] * self.view_w * 0.5 + self.view_w * 0.5;
+        let i = (0..n)
+            .filter(|&i| self.snow_free(i) && self.on_screen(i))
+            .min_by(|&a, &b| (self.strip_px(a) - middle).abs().total_cmp(&(self.strip_px(b) - middle).abs()))?;
+        let ws = self.walk_ref(i).ws;
+        if Self::snowmen_on(chats, ws) >= tn().snowman_most as usize {
+            return None;
+        }
+        Some(self.snowman_start(i))
+    }
+
+    fn snowman_start(&mut self, i: usize) -> Chat {
         self.chat_id = self.chat_id.wrapping_add(1);
         let id = self.chat_id;
         self.enlist(i, id);
+        let ws = self.walk_ref(i).ws;
         let height = self.height_of(i);
         let x = self.strip_px(i);
         let dir = if self.walk.rand() < 0.5 { -1.0 } else { 1.0 };
@@ -73,7 +92,7 @@ impl CharacterOverlay {
         let ground = self.body_rect(i)[3];
         c.build = Some(Build { base: x, ground, big: height * tn().snowman_size, part: 0, ball: (x + dir * self.width_of(i), height * 0.15), dir, from: x, phase: 0, t: 0.0, carrier: i, ws });
         c.timer = 240.0;
-        Some(c)
+        c
     }
 
     /// Someone free nearby comes to help with it (three at most).

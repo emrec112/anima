@@ -306,6 +306,26 @@ fn choices(r: &Rc<Roster>, pop: &Panel, i: usize, path: &str) -> gtk::Widget {
     let (rr, p, n, pth) = (r.clone(), pop.clone(), name.clone(), path.to_string());
     fit.connect_clicked(move |_| p.open(|q| fit_view(&rr, q, i, &n, &pth)));
     list.append(&fit);
+    // its happy picture faces the wrong way: drawn mirrored to match the calm one
+    let folder = Path::new(path).parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if !folder.is_empty() {
+        let flips = config::list(&config::read(), "character", "happy_flip").unwrap_or_default();
+        let row = gtk::Box::builder().spacing(8).margin_start(8).margin_end(4).margin_top(4).margin_bottom(4).build();
+        row.append(&gtk::Label::builder().label("Turn happy pose round").xalign(0.0).hexpand(true).tooltip_text("For a character whose happy picture faces the other way from its calm one").build());
+        let sw = gtk::Switch::builder().valign(gtk::Align::Center).active(flips.contains(&folder)).build();
+        let u = r.ui.clone();
+        sw.connect_active_notify(move |w| {
+            let mut flips = config::list(&config::read(), "character", "happy_flip").unwrap_or_default();
+            flips.retain(|f| f != &folder);
+            if w.is_active() {
+                flips.push(folder.clone());
+            }
+            config::set_list("character", "happy_flip", &flips);
+            u.restart_soon();
+        });
+        row.append(&sw);
+        list.append(&row);
+    }
     list.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     let remove = menu_button("Remove from line-up", "user-trash-symbolic");
     let (rr, p) = (r.clone(), pop.clone());
@@ -1447,6 +1467,15 @@ fn status_view(r: &Rc<Roster>, pop: &Panel, i: usize, name: &str) -> gtk::Widget
     row.append(&k);
     row.append(&gtk::LevelBar::builder().min_value(0.0).max_value(1.0).value(energy).hexpand(true).valign(gtk::Align::Center).build());
     b.append(&row);
+    // some read a lot, some hardly ever
+    if let Some(books) = me["books"].as_f64() {
+        let row = gtk::Box::builder().spacing(8).build();
+        let k = gtk::Label::builder().label("Loves books").xalign(0.0).width_chars(12).build();
+        k.add_css_class("dim-label");
+        row.append(&k);
+        row.append(&gtk::LevelBar::builder().min_value(0.0).max_value(1.0).value(books).hexpand(true).valign(gtk::Align::Center).build());
+        b.append(&row);
+    }
     // what it has got good at
     let skills: Vec<(String, f64)> = me["skills"].as_array().map(|a| a.iter().filter_map(|v| Some((v["game"].as_str()?.to_string(), v["skill"].as_f64()?))).collect()).unwrap_or_default();
     if !skills.is_empty() {

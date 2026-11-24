@@ -122,3 +122,17 @@ pub fn set_tuning(key: &str, value: Option<f64>) {
     }
     write(&doc);
 }
+
+/// A list of strings, if the key is there.
+pub fn list(doc: &DocumentMut, section: &str, key: &str) -> Option<Vec<String>> {
+    let a = doc.get(section)?.get(key)?.as_array()?;
+    Some(a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+}
+
+pub fn set_list(section: &str, key: &str, values: &[String]) {
+    let mut a = toml_edit::Array::new();
+    for v in values {
+        a.push(v.as_str());
+    }
+    set(section, key, a);
+}

@@ -1151,28 +1151,33 @@ impl CharacterOverlay {
             let wk = self.walk_ref(i);
             let chat = wk.social.and_then(|s| self.chats.iter().find(|c| c.id == s.chat));
             let with: Vec<String> = chat.map(|c| c.members.iter().chain(&c.watchers).filter(|&&j| j != i).map(|&j| self.character_name(j)).collect()).unwrap_or_default();
-            let game = chat.map(|c| match c.stage {
-                Stage::Contest => "jumping contest",
-                Stage::Cursor => "cursor game",
-                Stage::Long => "long jump",
-                Stage::Domino => "domino",
-                Stage::Tug => "tug of war",
-                Stage::Wrestle => "wrestling",
-                Stage::Tag => "tag",
-                Stage::Carrot => "carrot grab",
-                Stage::Gift => "gift",
-                Stage::Samba => "samba",
-                Stage::Volley => "volleyball",
-                Stage::Fishing => "fishing",
-                Stage::Snow => "snowball fight",
-                Stage::Hide => "hide and seek",
-                Stage::Snowman => "building a snowman",
-                Stage::Practice => "training",
-                Stage::Read => "reading",
-                Stage::Concert => "concert",
-                Stage::Cheer => "celebrating",
-                Stage::RaceCall | Stage::RaceWait => "getting ready to race",
-                _ => "",
+            // a game is played (or watched); the rest is just what it's doing
+            let game = chat.map(|c| {
+                let name = match c.stage {
+                    Stage::Contest => "jumping contest",
+                    Stage::Cursor => "cursor game",
+                    Stage::Long => "long jump",
+                    Stage::Domino => "domino",
+                    Stage::Tug => "tug of war",
+                    Stage::Wrestle => "wrestling",
+                    Stage::Tag => "tag",
+                    Stage::Carrot => "carrot grab",
+                    Stage::Gift => "gift",
+                    Stage::Samba => "samba",
+                    Stage::Volley => "volleyball",
+                    Stage::Snow => "snowball fight",
+                    Stage::Hide => "hide and seek",
+                    Stage::Fishing => return if c.members.contains(&i) { "Fishing".to_string() } else { "Watching them fish".to_string() },
+                    Stage::Snowman => return "Building a snowman".to_string(),
+                    Stage::Practice => return "Training".to_string(),
+                    Stage::Read => return "Reading a book".to_string(),
+                    Stage::Concert => return "At the concert".to_string(),
+                    Stage::Cheer => return "Celebrating".to_string(),
+                    Stage::RaceCall | Stage::RaceWait => return "Getting ready to race".to_string(),
+                    Stage::Play => return "Playing in the park".to_string(),
+                    _ => return String::new(),
+                };
+                if c.members.contains(&i) { format!("Playing {name}") } else { format!("Watching {name}") }
             });
             let doing = if wk.race.is_some() {
                 "Racing".to_string()
@@ -1183,7 +1188,7 @@ impl CharacterOverlay {
             } else if wk.act == Act::Held {
                 "In your hand".to_string()
             } else if let Some(g) = game.filter(|g| !g.is_empty()) {
-                format!("Playing {g}")
+                g
             } else if chat.is_some() {
                 "Chatting".to_string()
             } else if wk.crowd.is_some() {
@@ -1215,6 +1220,7 @@ impl CharacterOverlay {
                 "workspace": ws,
                 "energy": energy,
                 "played": played,
+                "books": read::love(&name),
                 "bonds": bonds,
             }));
         }
@@ -2056,6 +2062,12 @@ impl CharacterOverlay {
                 wk.timer = wk.timer.max(25.0);
                 wk.sign = Some(kind);
                 wk.sign_left = 25.0;
+            }
+            return true;
+        }
+        if name == "snowman" {
+            if let Some(c) = self.snowman_now(chats, n) {
+                chats.push(c);
             }
             return true;
         }

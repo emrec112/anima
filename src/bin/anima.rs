@@ -150,7 +150,7 @@ enum Cmd {
     Lockscreen {
         state: String,
     },
-    /// Start a game now: contest, cursor, long, domino, tug, tag, samba, volley, carrot, gift, fishing, snow, hide, read.
+    /// Start a game now: contest, cursor, long, domino, tug, tag, samba, volley, carrot, gift, fishing, snow, snowman, hide, read.
     Game {
         name: String,
     },

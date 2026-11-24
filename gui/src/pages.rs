@@ -226,14 +226,14 @@ fn play_now(ui: &Rc<Ui>) -> gtk::Widget {
         .column_spacing(10)
         .homogeneous(true)
         .build();
-    let games: [(&str, &str, &'static str, &'static str); 14] = [
+    let games: [(&str, &str, &'static str, &'static str); 16] = [
         ("Jumping contest", "go-up-symbolic", "contest", "game_min"),
         ("Cursor game", "input-mouse-symbolic", "cursor", "game_min"),
         ("Long jump", "go-next-symbolic", "long", "long_min"),
         ("Domino", "view-dual-symbolic", "domino", "party_min"),
         ("Tug of war", "object-flip-horizontal-symbolic", "tug", "tug_min"),
         ("Wrestling", "applications-games-symbolic", "wrestle", "wrestle_min"),
-        ("Tag", "find-location-symbolic", "tag", "party_min"),
+        ("Tag", "find-location-symbolic", "tag", "tag_min"),
         ("Samba", "audio-x-generic-symbolic", "samba", "samba_min"),
         (
             "Volleyball",
@@ -246,6 +246,9 @@ fn play_now(ui: &Rc<Ui>) -> gtk::Widget {
         ("Fishing", "weather-showers-symbolic", "fishing", "fish_min"),
         ("Snowball fight", "weather-snow-symbolic", "snow", "snow_min"),
         ("Hide and seek", "edit-find-symbolic", "hide", "hide_min"),
+        // one character is enough for these
+        ("Snowman", "weather-snow-symbolic", "snowman", ""),
+        ("Reading", "accessories-dictionary-symbolic", "read", ""),
     ];
     for (label, icon, name, min_key) in games {
         let inner = gtk::Box::builder()
@@ -260,7 +263,7 @@ fn play_now(ui: &Rc<Ui>) -> gtk::Widget {
         b.add_css_class("tile");
         let u = ui.clone();
         b.connect_clicked(move |_| {
-            let need = tuning_now(min_key) as usize;
+            let need = if min_key.is_empty() { 1 } else { tuning_now(min_key) as usize };
             let have = u.data.borrow().enabled().len();
             if !daemon::running() {
                 u.say("Anima is off");
@@ -680,6 +683,44 @@ fn general_page(ui: &Rc<Ui>) -> gtk::Widget {
         look.add(&row);
     }
     page.add(&look);
+
+    // walking about, and the fullscreen apps they may come out over
+    let roam = adw::PreferencesGroup::builder().title("Walking about").build();
+    let walk = adw::SwitchRow::builder()
+        .title("Walk around")
+        .subtitle("Off: they stay put in their corner")
+        .active(config::boolean(&doc, "character", "walk", true))
+        .build();
+    let u = ui.clone();
+    walk.connect_active_notify(move |r| {
+        config::set("character", "walk", r.is_active());
+        // applied as it runs
+        u.reload_soon();
+    });
+    roam.add(&walk);
+    const FULLSCREEN_APPS: &str = "firefox, zen, chromium, chrome, brave, mpv, vlc, celluloid, haruna";
+    let apps = config::list(&doc, "character", "fullscreen_apps").map_or_else(|| FULLSCREEN_APPS.to_string(), |v| v.join(", "));
+    let apps_row = adw::EntryRow::builder()
+        .title("Fullscreen apps they may visit (part of the app id, comma between)")
+        .text(apps)
+        .show_apply_button(true)
+        .build();
+    let u = ui.clone();
+    apps_row.connect_apply(move |e| {
+        let v: Vec<String> = e.text().split(',').map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
+        config::set_list("character", "fullscreen_apps", &v);
+        u.restart_soon();
+        u.say("Fullscreen apps saved");
+    });
+    roam.add(&apps_row);
+    let apps_note = gtk::Label::builder()
+        .label("Keep games out of it: a character over a fullscreen game can cost it frames.")
+        .xalign(0.0)
+        .wrap(true)
+        .build();
+    apps_note.add_css_class("dim-label");
+    roam.add(&apps_note);
+    page.add(&roam);
 
     let sound = adw::PreferencesGroup::builder()
         .title("Sound and music")
